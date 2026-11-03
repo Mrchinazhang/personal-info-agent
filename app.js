@@ -28,6 +28,19 @@
     im: { source: 'paste', mode: 'auto', text: '', url: '', result: null, selected: {} }
   }
 
+  /* ---------------- 准入与额度保护 ----------------
+   * 说明：这是纯前端护栏，用来挡住"随手转发后被人反复刷短信"的常见情况，
+   *       挡不住直接调接口的恶意脚本。要彻底限制，把 registerOpen 改成 false
+   *       并把允许的手机号填进 whitelist。
+   */
+  var GUARD = {
+    registerOpen: true,   // false = 只有 whitelist 里的号码能注册/登录
+    whitelist: [],        // 例：['13800138000', '13900139000']
+    smsPerPhone: 3,       // 同一手机号每天最多获取几次验证码
+    smsPerDay: 30,        // 全站每天最多发出多少条验证码（额度保险丝）
+    regPerDevice: 3       // 同一浏览器每天最多新建几个账号
+  }
+
   /* ---------------- 工具 ---------------- */
   function $(sel) { return document.querySelector(sel) }
   function $$(sel) { return Array.prototype.slice.call(document.querySelectorAll(sel)) }
@@ -59,6 +72,26 @@
   function unwrap(res) {
     if (res.error) throw res.error
     return res.data
+  }
+
+  /* ---------------- 额度计数（按天、按浏览器） ---------------- */
+  function guardDay() {
+    var d = new Date(), p = function (n) { return n < 10 ? '0' + n : '' + n }
+    return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate())
+  }
+  function guardGet(k) {
+    try { return parseInt(localStorage.getItem('pi_g_' + k + '_' + guardDay()) || '0', 10) || 0 } catch (e) { return 0 }
+  }
+  function guardInc(k) {
+    try { localStorage.setItem('pi_g_' + k + '_' + guardDay(), String(guardGet(k) + 1)) } catch (e) {}
+  }
+  // 放行返回 null，拦截返回提示文案
+  function guardCheck(phone) {
+    if (!GUARD.registerOpen && GUARD.whitelist.indexOf(phone) < 0) return '该手机号暂未开通使用权限'
+    if (guardGet('phone_' + phone) >= GUARD.smsPerPhone) return '该手机号今天获取验证码次数已达上限，请明天再试'
+    if (guardGet('smsall') >= GUARD.smsPerDay) return '本站今日验证码发送量已达上限，请明天再试'
+    if (guardGet('reg') >= GUARD.regPerDevice) return '当前浏览器今日注册账号数已达上限，请明天再试'
+    return null
   }
 
   /* ---------------- 大模型 ---------------- */
@@ -237,6 +270,8 @@
         $('#phone-error').textContent = '请输入正确的 11 位手机号'
         return
       }
+      var blocked = guardCheck(phone)
+      if (blocked) { $('#phone-error').textContent = blocked; return }
       $('#phone-error').textContent = ''
       setAuthError('')
       var btn = this
@@ -250,6 +285,9 @@
         return
       }
       pendingOtp = { phone: phone, verificationId: sent.data.verificationId, isExistingUser: sent.data.isExistingUser }
+      guardInc('smsall')
+      guardInc('phone_' + phone)
+      if (sent.data && sent.data.isExistingUser === false) guardInc('reg')
       toast('验证码已发送')
       startCountdown(60)
     })
