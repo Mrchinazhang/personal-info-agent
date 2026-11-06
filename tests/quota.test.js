@@ -148,7 +148,7 @@ async function expectBlocked(fn, codePart) {
     assert(c > -1 && g > -1 && a > -1)
     assert(c < g && g < a, '额度护栏必须在 app.js 创建 cloud 之前装好')
   })
-  await ok('所有 ?v= 一致且已递增到 20261106e', () => {
+  await ok('所有 ?v= 一致且不低于 20261106e', () => {
     const v = [...html.matchAll(/\?v=([0-9a-zA-Z]+)/g)].map((m) => m[1])
     assert(v.length >= 6, 'CSS/dict/i18n/config/guard/app 都应带版本号，实际 ' + v.length)
     assert(new Set(v).size === 1, '版本号不一致: ' + v.join(', '))
