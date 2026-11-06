@@ -20,5 +20,22 @@ window.PUBLIC_CONFIG = {
   oauthRelayBaseUrl: 'https://www.workbuddy.cn/v2/as/genie-baas/oauth',
 
   // 前端可公开密钥，形如 wbpk_xxxxxxxxxxxxxxxxxxxx
-  publishableKey: 'wbpk_REPLACE_WITH_YOUR_PUBLISHABLE_KEY'
+  publishableKey: 'wbpk_REPLACE_WITH_YOUR_PUBLISHABLE_KEY',
+
+  // ------------------------------------------------------------------
+  // 创建者额度熔断（可选，由 llm-guard.js 读取，删掉则用内置默认值）
+  // 纯静态站点调用平台 LLM 扣的是「创建者」额度，且 SDK 不暴露余额，
+  // 所以务必给公开分享的部署设上限。0 = 该维度不限。
+  // 注意：计数按浏览器 localStorage，能挡正常使用与误触，挡不住有人
+  // 直接拿 publishableKey 写脚本。要全局停用线上 AI，把 aiEnabled 设 false。
+  // ------------------------------------------------------------------
+  llmBudget: {
+    aiEnabled: true,         // false = 该部署所有访客的 AI 全部停用
+    maxCallsPerDay: 20,      // 每浏览器每天最多发起多少次 AI 调用
+    maxCallsTotal: 200,      // 每浏览器累计上限，跨天不清零
+    maxCreditsPerDay: 0,     // >0 时按平台 usage.credit 累计熔断
+    maxTokensPerDay: 0,      // >0 时按平台 usage.total_tokens 累计熔断
+    stopOnQuotaError: true,  // 平台报 quota_ / 限流后自动熔断，直到手动 reset
+    trackUsage: true         // 注入 stream_options.include_usage 记录真实消耗
+  }
 }

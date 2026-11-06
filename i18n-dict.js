@@ -324,5 +324,11 @@ window.I18N_EN = {
   "」": "\"",
   "；": "; ",
   "）": ")",
-  "。\n\n": ".\n\n"
+  "。\n\n": ".\n\n",
+  "线上版 AI 已停用，请改用本地离线版": "Online AI is disabled for this deployment. Please use the local offline edition instead.",
+  "今日 AI 调用次数已达上限（%s 次），请明天再试或改用本地离线版": "Daily AI call limit reached (%s). Try again tomorrow or use the local offline edition.",
+  "累计 AI 调用次数已达上限（%s 次），已自动终止": "Lifetime AI call limit reached (%s); calls have been stopped automatically.",
+  "今日 AI 额度消耗已达上限（%s credits），已自动终止": "Daily AI credit budget reached (%s credits); calls have been stopped automatically.",
+  "今日 AI token 消耗已达上限（%s），已自动终止": "Daily AI token budget reached (%s); calls have been stopped automatically.",
+  "平台额度已用尽或触发限流，AI 调用已自动停止；请在浏览器控制台执行 PIA_LLM_BUDGET.reset() 后重试": "Platform quota exhausted or rate-limited; AI calls have been stopped. Run PIA_LLM_BUDGET.reset() in the browser console before retrying."
 };

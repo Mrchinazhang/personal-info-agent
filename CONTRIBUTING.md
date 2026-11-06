@@ -16,13 +16,15 @@ python -m http.server 8080
 
 ## 提交前自查
 
-- `node --check app.js && node --check i18n.js && node --check i18n-dict.js && node --check config.example.js`
-- `node tests/i18n.test.js && node tests/render.test.js`（两套零依赖验收，CI 也会跑）
+- `node --check app.js && node --check i18n.js && node --check i18n-dict.js && node --check llm-guard.js && node --check config.example.js`
+- `node tests/i18n.test.js && node tests/render.test.js && node tests/quota.test.js`（三套零依赖验收，CI 也会跑）
 - **不要**为了测试去发真实短信或跑真实 AI 请求（会消耗额度）；测试用最小 DOM / SDK stub，不发网络请求
+- 额度逻辑只放在 `llm-guard.js`，**不要往 `app.js` 里加**：本地离线版与免费云版直接复用 `app.js` 且要求字节级一致，它们不消耗 WorkBuddy 额度、也不需要这道护栏
+- 改 `llm-guard.js` 的错误文案时，`tr()` 的中文 key 必须同步补进 `i18n-dict.js`；错误码不要以 `auth_` / `quota_` / `gateway_` / `model_` / `request_` / `internal_` 开头，否则会被 `llmErrorText()` 换成笼统提示，用户看不到「为什么被拦」
 - **绝不提交 `config.js`**（已 gitignore，CI 也会拦截）
 - 改过 CSS / JS 就把 `index.html` 里所有 `?v=YYYYMMDDx` 缓存版本号一起递增（含 `i18n-dict.js`），否则线上会继续加载旧文件
 - 新增登录方式前先确认平台 Provider 白名单：当前只有 `email` / `phone` / `wechat` / `workbuddy`。**不要加一个点了必然报错的按钮**；Provider 开关在管理页，代码改不了。同理不要加 ChatGPT / Google / GitHub 登录，也不要让用户填任何第三方 API Key
-- **新增界面文案必须双语**：在 `app.js` 写 `tr('中文原文')`，并在 `i18n-dict.js` 补一条英文。英文值不得残留汉字 / 中文标点；含 HTML 标签的字符串要保留完全相同的标签顺序，且不能把未转义的 `"` 塞进属性。用户数据（笔记 / 标题 / 标签 / AI 回答）一律不经过 `tr()`
+- **新增界面文案必须双语**：在 `app.js` / `llm-guard.js` 写 `tr('中文原文')`，并在 `i18n-dict.js` 补一条英文。英文值不得残留汉字 / 中文标点；含 HTML 标签的字符串要保留完全相同的标签顺序，且不能把未转义的 `"` 塞进属性。用户数据（笔记 / 标题 / 标签 / AI 回答）一律不经过 `tr()`
 - 不要为 i18n 引入任何库或 CDN；项目要求断网也能独立打开
 - 改语言切换相关逻辑时，保持「重绘不丢草稿」（`render(true)` 的 `snapshotView` / `restoreView`）
 

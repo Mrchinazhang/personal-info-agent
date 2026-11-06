@@ -56,14 +56,16 @@ personal-info-agent/
 ├── app.js                  # 全部业务逻辑（视图渲染 / 数据读写 / AI 调用）
 ├── i18n-dict.js            # 英文字典（中文原文作 key，手工维护）
 ├── i18n.js                 # 零依赖双语层：语言检测与切换、静态 DOM 翻译
+├── llm-guard.js            # 创建者额度熔断：包住 SDK 的 LLM 调用，app.js 零改动
 ├── styles.css              # 主题与组件样式
 ├── config.js               # 本机配置（已 gitignore，不提交）
 ├── config.example.js       # 配置模板，提交到仓库
 ├── tests/
 │   ├── i18n.test.js        # 字典 / 静态文案 / 语言切换验收（17 项）
-│   └── render.test.js      # 端到端渲染：六个视图英文化、用户数据不变（9 项）
+│   ├── render.test.js      # 端到端渲染：六个视图英文化、用户数据不变（9 项）
+│   └── quota.test.js       # 额度熔断：超限不发请求、quota_ 熔断、usage 累计（22 项）
 ├── .github/
-│   ├── workflows/ci.yml    # 语法 / 双语验收 / 凭证 / 登录页完整性静态检查
+│   ├── workflows/ci.yml    # 语法 / 三套验收 / 凭证 / 登录页完整性静态检查
 │   └── FUNDING.yml         # 赞助入口（需先开通 GitHub Sponsors）
 ├── CONTRIBUTING.md
 ├── SECURITY.md
@@ -153,6 +155,7 @@ OAuth 登录要求平台侧持有该厂商的应用凭证并登记回调域名�
 | `endpoint` | 应用访问域名 | 否 |
 | `oauthRelayBaseUrl` | OAuth 中转地址，平台固定值 | 否 |
 | `publishableKey` | 前端可公开密钥，权限受 RLS 约束 | 否（但建议不公开） |
+| `llmBudget` | 创建者额度上限与熔断开关，见下方专章 | 否 |
 
 > ⚠️ **只能放 publishable key**。服务端密钥（secret / service_role）放进前端等于把数据库交出去，
 > 本项目全程不需要它——所有读写都走带用户身份的 SDK 调用。
@@ -247,6 +250,43 @@ var GUARD = {
 
 > 这是纯前端护栏，能挡住"链接被转发后被人反复点"的常见情况，但挡不住直接调接口的脚本。真正要锁死，需要把校验放到云函数里。
 
+### LLM 创建者额度熔断（防止 AI 把额度刷光）
+
+**先说清楚一个事实**：这个纯静态站点调用平台 LLM 时，扣的是**应用创建者**的额度，不是访客的。而平台 SDK 明确不暴露余额、总额度、账期、单价或每模型限流数字，所以**应用里查不到「我还剩多少额度」**，只能到 WorkBuddy 控制台查看账户用量。`models.list()` 里的 `credits` 只是展示信息，不是余额；`usage.credit` 是「本次调用消耗」，不是账单或剩余额度。
+
+因此 `llm-guard.js` 采取的是**设上限 + 超限不发请求 + 出错自动熔断**，而不是「查余额」。它包住 `WorkBuddyCloud.createWorkBuddyCloud()` 返回的 `chat.completions.create()`，所以 `app.js` 一行都不用改，本地离线版 / 免费云版也无需加载它。
+
+在 `config.js` 里配置（模板见 `config.example.js`）：
+
+```js
+llmBudget: {
+  aiEnabled: true,         // false = 该部署所有访客的 AI 全部停用
+  maxCallsPerDay: 20,      // 每浏览器每天最多发起多少次 AI 调用
+  maxCallsTotal: 200,      // 每浏览器累计上限，跨天不清零
+  maxCreditsPerDay: 0,     // >0 时按平台 usage.credit 累计熔断
+  maxTokensPerDay: 0,      // >0 时按平台 usage.total_tokens 累计熔断
+  stopOnQuotaError: true,  // 平台报 quota_ / 限流后自动熔断，直到手动 reset
+  trackUsage: true         // 注入 stream_options.include_usage 记录真实消耗
+}
+```
+
+`0` 表示该维度不设上限。护栏会注入 `stream_options: { include_usage: true }`，从最后一个 usage chunk 里累计本次真实的 `credit` / `total_tokens`；超限时请求**根本不会发出**，界面显示具体原因（中英双语）。
+
+在浏览器控制台可以查看与重置：
+
+```js
+PIA_LLM_BUDGET.status()   // 今日/累计次数、credits、tokens、是否已熔断、当前预算
+PIA_LLM_BUDGET.reset()    // 清空计数并解除熔断
+```
+
+**必须如实说明的边界**：计数存在浏览器 `localStorage`，是**按浏览器**的客户端闸门。它能挡正常使用、误触连点、以及平台额度耗尽后的持续重试，**挡不住有人拿 publishableKey 直接写脚本调接口**；它也不是平台级硬限。要真正「全局、立刻、对所有访客」止损，只有三条路：
+
+1. 把 `config.js` 的 `aiEnabled` 改成 `false` 后重新发布 —— 线上 AI 对所有访客一次性停用，零消耗；
+2. 下线线上站点或撤掉 AI 入口；
+3. 改用 **本地离线版**（Flask + SQLite + 可选 Ollama，完全不联网、不扣任何额度）或 **免费云版**（Cloudflare Pages + Supabase + Workers AI，服务端按用户限流，同样不碰 WorkBuddy 额度）。
+
+平台官方文档同样建议：对终端用户能触发的调用做 rate-limit，避免额度被一次刷完。本项目把这个建议落成了上面的默认预算。
+
 ---
 
 ## 国际化（i18n）
@@ -302,8 +342,14 @@ var GUARD = {
 **点「使用 WorkBuddy 登录」提示未打开**
 管理页 → 认证 → WorkBuddy 登录开关未开启。这是平台侧配置，改代码无效。
 
+**我的额度还剩多少？能不能限制住？**
+应用里查不到——平台 SDK 不暴露余额 / 总额度 / 账期 / 单价，请到 WorkBuddy 控制台看账户用量。应用能做的是设上限：`config.js` 的 `llmBudget` 控制每个浏览器每天与累计的调用次数、credits、tokens，超限直接不发请求，平台回 `quota_` 会自动熔断。要看消耗与重置，在控制台执行 `PIA_LLM_BUDGET.status()` / `PIA_LLM_BUDGET.reset()`。**这是按浏览器的客户端闸门，不是平台级硬限**；想对所有访客一刀切停用，把 `aiEnabled` 改成 `false` 重新发布，或直接用本地离线版。详见上方「LLM 创建者额度熔断」。
+
+**提示「线上版 AI 已停用」或「今日 AI 调用次数已达上限」**
+这是额度护栏在正常工作，不是故障。前者说明部署方主动关掉了线上 AI；后者是当日预算用完，明天自动恢复。想继续用完整 AI 能力且不消耗任何额度，请改用本地离线版。
+
 **AI 提问报错 / 一直转圈**
-云资源里的模型未开通、额度用尽，或 `config.js` 的四个参数与实际资源不匹配。
+云资源里的模型未开通、额度用尽，或 `config.js` 的四个参数与实际资源不匹配。若提示「平台额度已用尽，AI 调用已自动停止」，说明护栏已熔断，按上面两条处理。
 
 **本地打开是白屏**
 直接双击了 `index.html`。用 `http://127.0.0.1` 起服务访问。
@@ -314,7 +360,7 @@ var GUARD = {
 
 - 本地开发、PR 约定见 [CONTRIBUTING.md](./CONTRIBUTING.md)
 - 漏洞报告与安全边界见 [SECURITY.md](./SECURITY.md)
-- 每次 push 会在 GitHub Actions 跑：5 个 JS 文件的语法检查、`node tests/i18n.test.js` 与 `node tests/render.test.js` 两套零依赖验收（字典无中文残留、HTML 标签结构一致、静态文案全覆盖、六个视图英文化渲染、用户数据不被翻译、切语言不丢草稿）、`config.js` 未入库、无硬编码凭证、登录页元素与绑定完整
+- 每次 push 会在 GitHub Actions 跑：7 个 JS 文件的语法检查、三套零依赖验收 —— `node tests/i18n.test.js`（字典无中文残留、HTML 标签结构一致、静态文案全覆盖）、`node tests/render.test.js`（六个视图英文化渲染、用户数据不被翻译、切语言不丢草稿）、`node tests/quota.test.js`（额度超限不发请求、`quota_` 自动熔断、usage 累计、跨天计数、双语提示）；外加 `config.js` 未入库、无硬编码凭证、登录页元素与绑定完整
 
 ## 支持这个项目
 

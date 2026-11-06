@@ -20,15 +20,19 @@ jobs:
           node --check config.example.js
           node --check i18n.js
           node --check i18n-dict.js
+          node --check llm-guard.js
           node --check tests/i18n.test.js
           node --check tests/render.test.js
+          node --check tests/quota.test.js
 
-      - name: 双语与端到端渲染验收
-        # 两套测试都是 Node 原生、零依赖、零网络：字典无中文残留、标签结构一致、
-        # 静态文案全覆盖、六个视图英文化、用户数据不被翻译、切语言不丢草稿。
+      - name: 双语、端到端渲染与额度熔断验收
+        # 三套测试都是 Node 原生、零依赖、零网络：字典无中文残留、标签结构一致、
+        # 静态文案全覆盖、六个视图英文化、用户数据不被翻译、切语言不丢草稿，
+        # 以及额度超限不发请求 / quota_ 自动熔断 / usage 累计。
         run: |
           node tests/i18n.test.js
           node tests/render.test.js
+          node tests/quota.test.js
 
       - name: 本机配置未被提交
         run: |

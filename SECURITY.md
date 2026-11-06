@@ -9,6 +9,7 @@
 - `config.js` / `config.example.js` 中的 `endpoint`、`publishableKey`、`oauthRelayBaseUrl` 是**设计上可公开**的前端参数，不是密钥；真正的服务凭证留在平台服务端，从不下发到浏览器。
 - 数据隔离由云端数据库的 **RLS** 保证：策略为 `owner_id = auth.uid()`，前端不传 `owner_id`。任何「绕过 RLS 读到他人数据」的报告请附真实复现步骤。
 - `app.js` 顶部的 `GUARD` 是**纯前端额度护栏**，只挡「链接被转发后被人反复点验证码」，挡不住直接调接口的脚本。这是已知且有意的设计取舍，不是漏洞；彻底限流要放到云函数里。
+- `llm-guard.js` 的额度熔断同样是**按浏览器 `localStorage` 计数**的客户端闸门（key `pia_llm_budget_v1`）：能挡误触连点与平台额度耗尽后的持续重试，但**不是平台级硬限，挡不住有人拿可公开的 `publishableKey` 直接写脚本调 LLM 接口**。这是静态站点的固有限制，已在 README 明示。真正全局止损的方式是 `config.js` 里 `aiEnabled: false` 后重新发布，或改用本地离线版 / 带服务端限流的免费云版。计数只存本机，不上报、不含用户笔记内容。
 - OAuth 回调只接受应用登记的 HTTPS 发布域名，`localhost` 被拒是协议要求，不是配置错误。
 - 各登录方式是**独立账号**，平台不提供账号合并；换方式登录看到空库不属于数据泄露。
 - 应用**不收集任何第三方 API Key**，也不提供 ChatGPT / OpenAI / Google / GitHub 等第三方账号登录——平台没有对应 Provider，前端伪造入口只会制造凭证泄露面。任何要求你输入 OpenAI Key 才能「登录」的改版都不是本项目。
