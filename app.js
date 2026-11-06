@@ -195,8 +195,8 @@
   }
 
   function sys(text) {
-    // AI 内部指令保持中文即可（用户看不到），但输出语言要跟随界面。
-    // JSON 字段名与枚举值是代码契约，必须保持英文。
+    // 内部指令随界面语言切换（字典已提供英文版），输出语言由下面的 suffix 统一指定。
+    // JSON 字段名与枚举值是代码契约，必须保持英文，绝不翻译。
     var suffix = (window.I18N && window.I18N.currentLang() === 'en')
       ? '\n\nRespond in English. Keep JSON keys and enum values (idea/material/todo, high/medium/low) unchanged.'
       : ''
@@ -404,7 +404,7 @@
       var code = $('#code-input').value.trim()
       if (!code) { setAuthError(tr('请输入收到的验证码')); return }
       if (!pendingOtp || pendingOtp.method !== ctx.method || pendingOtp.value !== value) {
-        setAuthError(tr('请先为当前') + ctx.label + tr('获取验证码'))
+        setAuthError(tr('请先为当前登录方式重新获取验证码'))
         return
       }
       var btn = this
@@ -531,8 +531,35 @@
   }
 
   /* ---------------- 视图渲染 ---------------- */
-  function render() {
+  // 切换语言会重绘 #main：先缓存未提交的输入与已生成的结果，重绘后写回，
+  // 避免国际用户切到英文时丢失正在写的草稿或刚生成的总结 / 回答。
+  var PRESERVE_BOXES = ['answer-box', 'refs-box', 'report-box', 'plan-box']
+  function snapshotView() {
+    var snap = { values: {}, boxes: {} }
+    $$('#main textarea, #main input').forEach(function (el) {
+      if (el.id && typeof el.value === 'string') snap.values[el.id] = el.value
+    })
+    PRESERVE_BOXES.forEach(function (id) {
+      var el = document.getElementById(id)
+      if (el) snap.boxes[id] = { html: el.innerHTML, cls: el.className }
+    })
+    return snap
+  }
+  function restoreView(snap) {
+    if (!snap) return
+    Object.keys(snap.values).forEach(function (id) {
+      var el = document.getElementById(id)
+      if (el) el.value = snap.values[id]
+    })
+    Object.keys(snap.boxes).forEach(function (id) {
+      var el = document.getElementById(id)
+      if (el) { el.innerHTML = snap.boxes[id].html; el.className = snap.boxes[id].cls }
+    })
+  }
+
+  function render(preserve) {
     $$('.nav-btn').forEach(function (b) { b.classList.toggle('active', b.dataset.view === state.view) })
+    var snap = preserve ? snapshotView() : null
     var main = $('#main')
     if (state.view === 'capture') main.innerHTML = viewCapture()
     else if (state.view === 'import') main.innerHTML = viewImport()
@@ -540,6 +567,7 @@
     else if (state.view === 'todos') main.innerHTML = viewTodos()
     else if (state.view === 'ask') main.innerHTML = viewAsk()
     else main.innerHTML = viewReports()
+    restoreView(snap)   // 必须早于 bindView()，事件才绑到恢复后的节点上
     bindView()
   }
 
@@ -842,7 +870,7 @@
               '<div class="result-title">' + esc(it.title) + ' <span class="badge badge-' + esc(it.category) + '">' + esc(CATEGORY[it.category] || it.category) + '</span>' +
               (it.priority ? ' <span class="badge prio-' + esc(it.priority) + '">' + esc(PRIORITY[it.priority]) + tr('优先</span>') : '') + '</div>' +
               (it.summary ? '<div class="result-sum">' + esc(it.summary) + '</div>' : '') +
-              (it.key_points && it.key_points.length ? tr('<div class="result-sum">重点：') + esc(it.key_points.join('；')) + '</div>' : '') +
+              (it.key_points && it.key_points.length ? tr('<div class="result-sum">重点：') + esc(it.key_points.join(tr('；'))) + '</div>' : '') +
               (it.content ? '<div class="result-quote">' + esc(it.content) + '</div>' : '') +
             '</div>' +
           '</div>'
@@ -887,7 +915,7 @@
         article: tr('这是一篇网页文章或长文。请拆成若干条独立知识点 / 观点 / 可行动项，每条 content 保留原文中最相关的段落')
       }[state.im.mode] || tr('自行判断')
 
-      var prompt = tr('请读取下面这段外部内容，') + modeDesc + '。\n\n' +
+      var prompt = tr('请读取下面这段外部内容，') + modeDesc + tr('。\n\n') +
         tr('输出 JSON：\n') +
         tr('{"analysis":"200 字以内的整体分析：这段内容在讲什么、关键结论、值得注意的点",') +
         tr('"items":[{"title":"不超过 20 字","content":"300 字以内，提炼或引用原文","category":"idea|material|todo",') +
@@ -1235,7 +1263,7 @@
       var created = unwrap(await cloud.database.from('items').insert(row).select())
       if (!created || !created.length) throw new Error(tr('保存失败，请确认已登录'))
       $('#capture-input').value = ''
-      toast(tr('已保存并整理为「') + CATEGORY[row.category] + '」')
+      toast(tr('已保存并整理为「') + CATEGORY[row.category] + tr('」'))
       await refresh()
       linkNewItem(created[0])
     } catch (e) {
@@ -1455,7 +1483,7 @@
         return 'ID ' + c.id + ' | [' + (CATEGORY[c.category] || c.category) + '] ' + c.title +
           tr('\n摘要：') + (c.summary || '') +
           tr('\n正文：') + String(c.content || '').slice(0, 600) +
-          tr('\n要点：') + ((c.key_points || []).join('；') || tr('无'))
+          tr('\n要点：') + ((c.key_points || []).join(tr('；')) || tr('无'))
       }).join('\n---\n')
       var prompt = tr('以下是用户资料库中最相关的内容片段：\n\n') + (brief || tr('（没有检索到相关内容）')) +
         tr('\n\n请基于以上内容回答用户的问题。要求：\n') +
@@ -1512,8 +1540,8 @@
     try {
       var brief = todos.map(function (t, i) {
         return (i + 1) + '. ' + t.title +
-          (t.priority ? tr('（优先级：') + PRIORITY[t.priority] + '）' : '') +
-          (t.due_date ? tr('（截止：') + fmtDay(t.due_date) + '）' : '') +
+          (t.priority ? tr('（优先级：') + PRIORITY[t.priority] + tr('）') : '') +
+          (t.due_date ? tr('（截止：') + fmtDay(t.due_date) + tr('）') : '') +
           (t.summary ? ' — ' + t.summary : '')
       }).join('\n')
       var prompt = tr('这些是用户当前未完成的待办：\n') + brief +
@@ -1618,7 +1646,7 @@
   if (window.I18N && window.I18N.setRefresh) {
     window.I18N.setRefresh(function () {
       refreshLabels()
-      try { render() } catch (e) {}
+      try { render(true) } catch (e) {}
       try { renderUser() } catch (e) {}
     })
   }

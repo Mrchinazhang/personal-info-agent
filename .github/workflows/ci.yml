@@ -20,6 +20,15 @@ jobs:
           node --check config.example.js
           node --check i18n.js
           node --check i18n-dict.js
+          node --check tests/i18n.test.js
+          node --check tests/render.test.js
+
+      - name: 双语与端到端渲染验收
+        # 两套测试都是 Node 原生、零依赖、零网络：字典无中文残留、标签结构一致、
+        # 静态文案全覆盖、六个视图英文化、用户数据不被翻译、切语言不丢草稿。
+        run: |
+          node tests/i18n.test.js
+          node tests/render.test.js
 
       - name: 本机配置未被提交
         run: |
@@ -53,7 +62,7 @@ jobs:
           missing = [i for i in required if i not in ids]
           if missing:
               sys.exit("登录页缺少元素: " + ", ".join(missing))
-          for name in required[5:9]:
+          for name in ["send-code-btn", "login-btn", "wechat-btn", "workbuddy-btn"]:
               if "$('#" + name + "')" not in js:
                   sys.exit("按钮未绑定: " + name)
           print("OK: 登录页元素与绑定齐全")

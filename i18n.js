@@ -2,7 +2,8 @@
  * 设计要点：
  *  1. 中文原文作字典 key，中文模式零开销；英文字典由 i18n-dict.js 提供 window.I18N_EN。
  *  2. 动态文案（app.js 渲染出来的）走 t()，用户数据是变量，永不经过 t()。
- *  3. 静态文案只扫描 [data-i18n-static] 区域，不碰 #main（那里全是用户内容）。
+ *  3. 静态文案只扫描 [data-i18n-static] 区域（文本 / placeholder / aria-label / title），
+ *     不碰 #main（那里全是用户内容）。
  *  4. 语言偏好只存 localStorage，不上传、不随账号走。
  */
 (function () {
@@ -70,7 +71,7 @@
       if (old) return old;
     }
     var out = {};
-    ['placeholder', 'aria-label'].forEach(function (a) {
+    ['placeholder', 'aria-label', 'title'].forEach(function (a) {
       if (el.hasAttribute && el.hasAttribute(a)) out[a] = el.getAttribute(a);
     });
     if (attrOrig) attrOrig.set(el, out);
@@ -109,12 +110,13 @@
     }
     // 表单 placeholder / aria-label
     if (zone.querySelectorAll) {
-      var els = zone.querySelectorAll('[placeholder], [aria-label]');
+      var els = zone.querySelectorAll('[placeholder], [aria-label], [title]');
       for (var i = 0; i < els.length; i++) {
         var el = els[i];
-        if (el.hasAttribute && el.hasAttribute('data-i18n-skip')) continue;
+        // data-i18n-hint 的 title 是「中文原文对照」，绝不能被翻译成英文
+        if (el.hasAttribute && (el.hasAttribute('data-i18n-skip') || el.hasAttribute('data-i18n-hint'))) continue;
         var attrs = savedAttrs(el);
-        ['placeholder', 'aria-label'].forEach(function (a) {
+        ['placeholder', 'aria-label', 'title'].forEach(function (a) {
           if (!Object.prototype.hasOwnProperty.call(attrs, a)) return;
           var o = attrs[a];
           el.setAttribute(a, lang === 'en' ? t(o) : o);
