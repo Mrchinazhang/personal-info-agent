@@ -1,5 +1,8 @@
 # 个人信息管家 Agent
 
+[![static-check](https://github.com/Mrchinazhang/personal-info-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/Mrchinazhang/personal-info-agent/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+
 把零散的想法、资料、待办丢进一个地方，交给 AI 帮你分类、串联、追问和总结。
 
 一个纯前端（无构建步骤）的个人知识管理单页应用：记录 → 导入拆解 → 检索 → 问答 → 周期回顾，
@@ -31,7 +34,7 @@
 
 - 原生 JavaScript（单文件 IIFE，无框架、无打包），HTML + CSS
 - [WorkBuddy Cloud SDK](https://cdn.jsdelivr.net/npm/@tencent-ai/workbuddy-cloud-sdk) 提供：
-  - 用户认证（手机号验证码 / 微信 OAuth）
+  - 用户认证（手机号 / 邮箱验证码、微信 OAuth、WorkBuddy 账号登录）
   - 云端数据库（按用户隔离的行级权限）
   - 免密钥的大模型调用（流式输出）
 
@@ -43,11 +46,16 @@
 
 ```
 personal-info-agent/
-├── index.html         # 页面骨架、登录视图、SDK 引入
-├── app.js             # 全部业务逻辑（视图渲染 / 数据读写 / AI 调用）
-├── styles.css         # 主题与组件样式
-├── config.js          # 本机配置（含云资源参数，已 gitignore，不提交）
-├── config.example.js  # 配置模板，提交到仓库
+├── index.html              # 页面骨架、登录视图、SDK 引入
+├── app.js                  # 全部业务逻辑（视图渲染 / 数据读写 / AI 调用）
+├── styles.css              # 主题与组件样式
+├── config.js               # 本机配置（已 gitignore，不提交）
+├── config.example.js       # 配置模板，提交到仓库
+├── .github/
+│   ├── workflows/ci.yml    # 语法 / 凭证 / 登录页完整性静态检查
+│   └── FUNDING.yml         # 赞助入口（需先开通 GitHub Sponsors）
+├── CONTRIBUTING.md
+├── SECURITY.md
 ├── LICENSE
 └── README.md
 ```
@@ -91,7 +99,25 @@ python -m http.server 8080
 
 ### 4. 登录
 
-手机号验证码或微信扫码均可。**注意：不同登录方式等于不同账号，数据互不可见**（见下文「数据隔离」）。
+登录页提供 5 种入口：
+
+| 入口 | 说明 | 适用 |
+| --- | --- | --- |
+| 📱 中国大陆手机号 | 11 位号码 + 短信验证码 | 国内用户 |
+| 📱 海外手机号 | 带 `+` 区号，如 `+14155550123` + 短信验证码 | 海外用户 |
+| ✉️ 邮箱 | Gmail / Outlook 等任意邮箱 + 邮件验证码 | **没有国内手机号、也不用微信的海外用户最省事的方式** |
+| 💬 微信 | 网站 OAuth（快捷登录 / 扫码） | 微信用户 |
+| 🅦 WorkBuddy 账号 | 平台统一账号 OAuth | 已有 WorkBuddy 账号的用户 |
+
+> **务必固定使用同一种方式登录。** 这些入口在云端是彼此独立的账号，数据不互通；换一种方式会看到空资料库，平台目前不提供账号合并。登录页已放醒目提示。
+
+Provider 开关在 **WorkBuddy 管理页 → 认证** 中；代码里加按钮不会自动开通 Provider。若点击后提示「未打开 XX 登录」，去管理页把对应开关打开即可。邮箱若显示 `degraded`，是邮件投递配置未就绪，同页可查。
+
+#### 关于 Google / TikTok / GitHub 登录
+
+**本项目没有、也不打算假装支持**这些一键登录。底层云平台的公开认证 Provider 只有 `email` / `phone` / `wechat` / `workbuddy` 四种，平台文档明确把 Google 授权流程标注为已退役（retired），TikTok 与 GitHub 从未提供。OAuth 登录要求平台侧持有该厂商的应用凭证并登记回调域名白名单，前端写多少按钮都绕不过去。
+
+如果确实需要，正确路径是**换一套支持 OAuth 扩展的后端**（如自建 Auth.js / Supabase Auth），或等平台开放对应 Provider——而不是在前端画一个点了就报错的按钮。当前对海外用户最实用的替代是**邮箱验证码**，Gmail 账号同样能用。
 
 ---
 
@@ -154,7 +180,8 @@ https://<your-app-id>.app.workbuddy.host/?sharecode=XXXXXXXXXX
 
 ## 数据隔离与隐私
 
-- 所有数据存于云端，按**登录账号**隔离；换一个登录方式（手机号 ↔ 微信）就是另一个账号，看不到彼此的数据
+- 所有数据存于云端，按**登录账号**隔离；手机号 / 邮箱 / 微信 / WorkBuddy 是四种独立身份，任意两种之间的数据都互不可见
+- 同一个大陆手机号写成 `13800138000` 和 `+8613800138000` 在部分认证后端会被当成两个账号，所以登录表单会自动去掉手写的 `+86` 前缀，统一按 11 位交给 SDK 规范化
 - 本地不落库，浏览器只保留会话令牌
 - AI 调用经平台中转，不在前端暴露模型密钥
 
@@ -162,22 +189,22 @@ https://<your-app-id>.app.workbuddy.host/?sharecode=XXXXXXXXXX
 
 | 数据 | 用途 | 存放位置 |
 | --- | --- | --- |
-| 手机号 | 仅用于接收登录验证码，作为账号标识 | 云端认证服务 |
+| 手机号 / 邮箱 | 仅用于接收登录验证码，作为账号标识 | 云端认证服务 |
 | 你记录的条目 | 提供记录、检索、问答、总结功能 | 云端数据库，按账号隔离 |
 | 导入的文本 | 交给模型拆解，只在请求期间传递 | 不落盘、不留存 |
 
 不采集设备信息、不做行为追踪、无第三方统计脚本。需要注销账号或清除全部数据，删除云端用户即可（联系维护者或用云服务控制台）。
 
-### 额度保护（防止短信验证码被刷）
+### 额度保护（防止验证码被刷）
 
-应用的登录是开放注册，任何人拿到链接都能注册，短信会按条消耗资源点。`app.js` 顶部有一段 `GUARD` 配置，默认策略：
+应用的登录是开放注册，任何人拿到链接都能注册，验证码会按条消耗资源点。`app.js` 顶部有一段 `GUARD` 配置，默认策略（手机号与邮箱共用同一套额度，按通道分别计数）：
 
 ```js
 var GUARD = {
-  registerOpen: true,   // false = 只有 whitelist 里的号码能注册/登录
-  whitelist: [],        // 例：['13800138000']
-  smsPerPhone: 3,       // 同一手机号每天最多获取 3 次验证码
-  smsPerDay: 30,        // 全站每天最多发 30 条（额度保险丝）
+  registerOpen: true,   // false = 只有 whitelist 里的账号能注册/登录
+  whitelist: [],        // 可放手机号或邮箱，例：['13800138000', 'me@gmail.com']
+  smsPerPhone: 3,       // 同一账号每天最多获取 3 次验证码
+  smsPerDay: 30,        // 全站每天最多发 30 次（额度保险丝）
   regPerDevice: 3       // 同一浏览器每天最多新建 3 个账号
 }
 ```
@@ -193,11 +220,17 @@ var GUARD = {
 **打开链接只看到「链接不完整」**
 少了 `?sharecode=...`，用完整链接。
 
-**登录页没有微信按钮**
-说明打开的是占位页或旧版发布产物。核对完整链接；仍是旧版就重新发布一次。
+**登录页没有微信 / WorkBuddy 按钮**
+说明打开的是占位页或旧版发布产物。核对完整链接；仍是旧版就重新发布一次（`index.html` 里 CSS/JS 都带 `?v=` 缓存版本号，发新版时记得同步递增）。
 
 **之前记录的东西不见了**
-九成是登录方式变了（例如原先微信登录，这次用手机号），不是数据被删。换回原来的登录方式即可。
+九成是登录方式变了（例如原先微信登录，这次换成邮箱），不是数据被删。换回原来的登录方式即可。也检查是不是给大陆号加了 `+86` 前缀写成另一种格式。
+
+**海外手机号 / 邮箱收不到验证码**
+先确认管理页里 `phone` / `email` Provider 是 `enabled`，邮箱不是 `degraded`；其次检查垃圾邮件箱。海外号码必须带 `+` 区号且不要在中间加括号。其余送达问题在平台侧，应用代码看不到。
+
+**点「使用 WorkBuddy 登录」提示未打开**
+管理页 → 认证 → WorkBuddy 登录开关未开启。这是平台侧配置，改代码无效。
 
 **AI 提问报错 / 一直转圈**
 云资源里的模型未开通、额度用尽，或 `config.js` 的四个参数与实际资源不匹配。
@@ -206,6 +239,12 @@ var GUARD = {
 直接双击了 `index.html`。用 `http://127.0.0.1` 起服务访问。
 
 ---
+
+## 参与贡献 / 安全
+
+- 本地开发、PR 约定见 [CONTRIBUTING.md](./CONTRIBUTING.md)
+- 漏洞报告与安全边界见 [SECURITY.md](./SECURITY.md)
+- 每次 push 会在 GitHub Actions 跑静态检查：JS 语法、`config.js` 未入库、无硬编码凭证、登录页元素与绑定完整
 
 ## License
 

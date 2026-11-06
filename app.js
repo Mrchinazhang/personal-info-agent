@@ -21,6 +21,7 @@
     chats: [],
     reports: [],
     view: 'capture',
+    authMethod: 'phone',   // 'phone' | 'email'，验证码登录的当前通道
     filter: { category: 'all', tag: '', q: '' },
     captureCat: 'auto',
     asking: false,
@@ -85,13 +86,38 @@
   function guardInc(k) {
     try { localStorage.setItem('pi_g_' + k + '_' + guardDay(), String(guardGet(k) + 1)) } catch (e) {}
   }
-  // 放行返回 null，拦截返回提示文案
-  function guardCheck(phone) {
-    if (!GUARD.registerOpen && GUARD.whitelist.indexOf(phone) < 0) return '该手机号暂未开通使用权限'
-    if (guardGet('phone_' + phone) >= GUARD.smsPerPhone) return '该手机号今天获取验证码次数已达上限，请明天再试'
+  // 放行返回 null，拦截返回提示文案。手机号与邮箱共用同一套额度策略，按通道分开计数。
+  function guardCheck(channel, value) {
+    if (!GUARD.registerOpen && GUARD.whitelist.indexOf(value) < 0) return '该账号暂未开通使用权限'
+    if (guardGet('otp_' + channel + '_' + value) >= GUARD.smsPerPhone) return '该账号今天获取验证码次数已达上限，请明天再试'
     if (guardGet('smsall') >= GUARD.smsPerDay) return '本站今日验证码发送量已达上限，请明天再试'
     if (guardGet('reg') >= GUARD.regPerDevice) return '当前浏览器今日注册账号数已达上限，请明天再试'
     return null
+  }
+
+  /* ---------------- 登录标识校验 ----------------
+   * 大陆号保持 11 位原样交给 SDK（SDK 自己补 +86，应用侧不要重复规范化）；
+   * 海外号只去掉用户输入的空格/连字符，保留 + 区号原样交给 SDK。
+   */
+  function normalizeLoginValue(method, raw) {
+    var v = String(raw == null ? '' : raw).trim()
+    if (method === 'email') return v.toLowerCase()
+    var n = v.replace(/[\s\-()]/g, '')
+    // 用户给大陆号手动加 +86 时去掉前缀，把 11 位原样交给 SDK 规范化。
+    // 否则 SDK 会把它当成「海外号码」原样保存，生成与纯 11 位号码不同的账号，
+    // 用户会以为「换了种写法就看不到原来的数据」。
+    if (/^\+86(1\d{10})$/.test(n)) return n.slice(3)
+    return n
+  }
+  function validateLoginValue(method, raw) {
+    var v = normalizeLoginValue(method, raw)
+    if (method === 'email') {
+      if (!/^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$/.test(v)) return '请输入正确的邮箱地址'
+      return null
+    }
+    if (/^1\d{10}$/.test(v)) return null
+    if (/^\+[1-9]\d{6,14}$/.test(v)) return null
+    return '中国大陆请输入 11 位手机号；海外号码请以 + 区号开头（如 +14155550123）'
   }
 
   /* ---------------- 大模型 ---------------- */
@@ -261,58 +287,115 @@
     }, 1000)
   }
 
+  function currentLoginInput() {
+    var method = state.authMethod
+    return {
+      method: method,
+      input: $(method === 'email' ? '#email-input' : '#phone-input'),
+      error: $(method === 'email' ? '#email-error' : '#phone-error'),
+      label: method === 'email' ? '邮箱' : '手机号'
+    }
+  }
+
+  function switchAuthMethod(method) {
+    if (method !== 'phone' && method !== 'email') return
+    state.authMethod = method
+    $$('.auth-tab').forEach(function (b) {
+      var on = b.getAttribute('data-method') === method
+      b.classList.toggle('is-active', on)
+      b.setAttribute('aria-selected', on ? 'true' : 'false')
+    })
+    $('#pane-phone').classList.toggle('hidden', method !== 'phone')
+    $('#pane-email').classList.toggle('hidden', method !== 'email')
+    $('#phone-error').textContent = ''
+    $('#email-error').textContent = ''
+    $('#code-input').value = ''
+    setAuthError('')
+    pendingOtp = null
+    clearInterval(codeTimer)
+    var send = $('#send-code-btn')
+    send.disabled = false
+    send.textContent = '获取验证码'
+  }
+
+  // OAuth 回调必须落在站点根路径，但要保留应用自身的参数（尤其 ?sharecode=…）。
+  // 用 location.origin 会把 sharecode 丢掉，回调后落到「链接不完整」占位页。
+  function oauthRedirect() {
+    var back = new URL(location.href)
+    back.pathname = '/'
+    ;['code', 'state', 'provider'].forEach(function (k) { back.searchParams.delete(k) })
+    return back.toString()
+  }
+  function oauthError(res, fallback) {
+    if (!res || !res.error) return false
+    var msg = res.error.message || fallback
+    setAuthError(msg + '（若提示未开通，请在 WorkBuddy 管理页 → 认证 中开启该登录方式）')
+    return true
+  }
+
   function bindAuth() {
     $('#phone-input').addEventListener('input', function () { $('#phone-error').textContent = '' })
+    $('#email-input').addEventListener('input', function () { $('#email-error').textContent = '' })
+    $$('.auth-tab').forEach(function (b) {
+      b.addEventListener('click', function () { switchAuthMethod(b.getAttribute('data-method')) })
+    })
 
     $('#send-code-btn').addEventListener('click', async function () {
-      var phone = $('#phone-input').value.trim()
-      if (!/^1\d{10}$/.test(phone)) {
-        $('#phone-error').textContent = '请输入正确的 11 位手机号'
-        return
-      }
-      var blocked = guardCheck(phone)
-      if (blocked) { $('#phone-error').textContent = blocked; return }
-      $('#phone-error').textContent = ''
+      var ctx = currentLoginInput()
+      var err = validateLoginValue(ctx.method, ctx.input.value)
+      if (err) { ctx.error.textContent = err; return }
+      var value = normalizeLoginValue(ctx.method, ctx.input.value)
+      var blocked = guardCheck(ctx.method, value)
+      if (blocked) { ctx.error.textContent = blocked; return }
+      ctx.error.textContent = ''
       setAuthError('')
       var btn = this
       btn.disabled = true
       btn.textContent = '发送中…'
-      var sent = await cloud.auth.sendOtp({ phone: phone })
+      // email 与 phone 互斥，一次只传一个
+      var payload = {}
+      payload[ctx.method] = value
+      var sent = await cloud.auth.sendOtp(payload)
       btn.disabled = false
       if (sent.error) {
         btn.textContent = '获取验证码'
         setAuthError(sent.error.message || '验证码发送失败')
         return
       }
-      pendingOtp = { phone: phone, verificationId: sent.data.verificationId, isExistingUser: sent.data.isExistingUser }
+      pendingOtp = {
+        method: ctx.method,
+        value: value,
+        verificationId: sent.data.verificationId,
+        isExistingUser: sent.data.isExistingUser
+      }
       guardInc('smsall')
-      guardInc('phone_' + phone)
+      guardInc('otp_' + ctx.method + '_' + value)
       if (sent.data && sent.data.isExistingUser === false) guardInc('reg')
-      toast('验证码已发送')
+      toast(ctx.method === 'email' ? '验证码已发送到邮箱' : '验证码已发送')
       startCountdown(60)
     })
 
     $('#login-btn').addEventListener('click', async function () {
-      var phone = $('#phone-input').value.trim()
+      var ctx = currentLoginInput()
+      var err = validateLoginValue(ctx.method, ctx.input.value)
+      if (err) { ctx.error.textContent = err; return }
+      var value = normalizeLoginValue(ctx.method, ctx.input.value)
       var code = $('#code-input').value.trim()
-      if (!/^1\d{10}$/.test(phone)) {
-        $('#phone-error').textContent = '请输入正确的 11 位手机号'
-        return
-      }
-      if (!code) { setAuthError('请输入短信验证码'); return }
-      if (!pendingOtp || pendingOtp.phone !== phone) {
-        setAuthError('请先为当前手机号获取验证码')
+      if (!code) { setAuthError('请输入收到的验证码'); return }
+      if (!pendingOtp || pendingOtp.method !== ctx.method || pendingOtp.value !== value) {
+        setAuthError('请先为当前' + ctx.label + '获取验证码')
         return
       }
       var btn = this
       btn.disabled = true
       btn.textContent = '登录中…'
-      var done = await cloud.auth.verifyOtp({
-        phone: pendingOtp.phone,
+      var args = {
         verificationId: pendingOtp.verificationId,
         isExistingUser: pendingOtp.isExistingUser,
         token: code
-      })
+      }
+      args[pendingOtp.method] = pendingOtp.value
+      var done = await cloud.auth.verifyOtp(args)
       btn.disabled = false
       btn.textContent = '登录 / 注册'
       if (done.error) {
@@ -326,11 +409,15 @@
 
     $('#wechat-btn').addEventListener('click', async function () {
       setAuthError('')
-      var res = await cloud.auth.signInWithOAuth({ provider: 'wechat', redirectTo: location.origin })
-      if (res.error) {
-        setAuthError(res.error.message || '微信登录不可用')
-        return
-      }
+      var res = await cloud.auth.signInWithOAuth({ provider: 'wechat', redirectTo: oauthRedirect() })
+      if (oauthError(res, '微信登录不可用')) return
+      location.assign(res.data.url)
+    })
+
+    $('#workbuddy-btn').addEventListener('click', async function () {
+      setAuthError('')
+      var res = await cloud.auth.signInWithOAuth({ provider: 'workbuddy', redirectTo: oauthRedirect() })
+      if (oauthError(res, 'WorkBuddy 登录不可用')) return
       location.assign(res.data.url)
     })
 

@@ -97,12 +97,44 @@ button { font-family: inherit; cursor: pointer; }
 }
 .btn-ghost:disabled { color: var(--text-mute); border-color: var(--border-strong); cursor: not-allowed; }
 
-.btn-wechat {
-  width: 100%; padding: 12px; border-radius: 10px;
+/* 验证码登录方式切换 */
+.auth-tabs {
+  display: flex; gap: 6px; padding: 4px; margin-bottom: 18px;
+  background: #f1f2f7; border-radius: 11px;
+}
+.auth-tab {
+  flex: 1; padding: 9px 6px; border: none; border-radius: 8px;
+  background: transparent; color: var(--text-sub);
+  font-size: 13px; font-weight: 600; transition: background .15s, color .15s, box-shadow .15s;
+}
+.auth-tab:hover { color: var(--text); }
+.auth-tab.is-active {
+  background: #fff; color: var(--brand);
+  box-shadow: 0 1px 4px rgba(30, 36, 80, .10);
+}
+.auth-pane.hidden { display: none; }
+.field-hint { margin: 6px 0 0; color: var(--text-mute); font-size: 11.5px; line-height: 1.5; }
+
+/* 第三方账号登录 */
+.btn-oauth {
+  width: 100%; padding: 11px 12px; margin-bottom: 9px; border-radius: 10px;
   border: 1px solid var(--border-strong); background: #fff;
   color: var(--text); font-size: 14px; font-weight: 600;
+  transition: background .15s, border-color .15s;
 }
-.btn-wechat:hover { background: #fafbfd; }
+.btn-oauth:hover { background: #fafbfd; border-color: var(--brand); }
+.btn-wechat { color: #1aad19; border-color: #cbe8cb; }
+.btn-wechat:hover { background: #f4fbf4; border-color: #1aad19; }
+.btn-workbuddy { color: var(--brand); }
+
+/* 账号隔离提示 */
+.auth-notice {
+  margin-top: 16px; padding: 12px 14px; border-radius: 10px;
+  background: #fff8e8; border: 1px solid #f2dfae;
+  color: #7a5a12; font-size: 12px; line-height: 1.65;
+}
+.auth-notice strong { display: block; font-size: 12.5px; margin-bottom: 4px; }
+.auth-notice p { margin: 0; }
 
 .divider { position: relative; text-align: center; margin: 18px 0; }
 .divider::before {

@@ -1,0 +1,57 @@
+name: static-check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: JS 语法检查
+        run: |
+          node --check app.js
+          node --check config.example.js
+
+      - name: 本机配置未被提交
+        run: |
+          if git ls-files | grep -Eq '(^|/)config\.js$'; then
+            echo "::error::config.js 含真实云资源配置，不应提交到公开仓库"
+            exit 1
+          fi
+          echo "OK: config.js 未入库"
+
+      - name: 无硬编码凭证
+        # 排除本文件自身：这里的正则字符串本身就是匹配样本
+        run: |
+          if git grep -I -n -E '(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY)' -- . ':(exclude).github/workflows/*'; then
+            echo "::error::检测到疑似凭证，请立即撤销并清理历史"
+            exit 1
+          fi
+          echo "OK: 未发现凭证"
+
+      - name: 登录页资源引用完整
+        run: |
+          python3 - <<'PY'
+          import re, pathlib, sys
+          html = pathlib.Path("index.html").read_text(encoding="utf-8")
+          js = pathlib.Path("app.js").read_text(encoding="utf-8")
+          ids = set(re.findall(r'\bid="([^"]+)"', html))
+          # 只检查登录视图里静态存在的元素；其余 id 由视图渲染时动态生成
+          required = ["auth-view", "app-view", "phone-input", "email-input",
+                      "code-input", "send-code-btn", "login-btn",
+                      "wechat-btn", "workbuddy-btn", "auth-error", "toast"]
+          missing = [i for i in required if i not in ids]
+          if missing:
+              sys.exit("登录页缺少元素: " + ", ".join(missing))
+          for name in required[5:9]:
+              if "$('#" + name + "')" not in js:
+                  sys.exit("按钮未绑定: " + name)
+          print("OK: 登录页元素与绑定齐全")
+          PY

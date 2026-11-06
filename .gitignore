@@ -1,6 +1,17 @@
 # ---- 本地配置（含云资源 ID 与 publishableKey，禁止提交）----
 config.js
 
+# ---- 密钥与本地凭证（防止误提交）----
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*.pfx
+*.secret
+id_rsa*
+id_ed25519*
+
 # ---- 系统文件 ----
 .DS_Store
 .DS_Store?
