@@ -2,11 +2,16 @@
 
 [![static-check](https://github.com/Mrchinazhang/personal-info-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/Mrchinazhang/personal-info-agent/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+[![支持作者](https://img.shields.io/badge/%E7%88%B1%E5%8F%91%E7%94%B5-%E8%AF%B7%E6%88%91%E5%96%9D%E6%9D%AF%E5%92%96%E5%95%A1-946ce6)](https://ifdian.net/a/Mrchinazhang)
 
 把零散的想法、资料、待办丢进一个地方，交给 AI 帮你分类、串联、追问和总结。
 
 一个纯前端（无构建步骤）的个人知识管理单页应用：记录 → 导入拆解 → 检索 → 问答 → 周期回顾，
 登录、数据库和 AI 能力全部托管在 WorkBuddy Cloud 上，不需要自己写后端。
+
+**界面支持中英双语**：按浏览器语言自动选择（中文系统显示中文，其它语言显示英文），右上角可随时切换，英文界面悬停可见中文原文对照。AI 生成的摘要、问答与总结也会跟随当前界面语言。
+
+> **English (short version)** — A no-build, single-page personal knowledge agent: capture scattered notes, import and split long text with AI, search, ask questions with citations, and generate periodic reviews. The UI is **bilingual (中文 / English)**, detected from your browser language and switchable at the top-right; AI answers follow the UI language. Auth, database and LLM calls are hosted by WorkBuddy Cloud. **Sign in with an email code** (Gmail / Outlook work, no phone number needed); ChatGPT / Google / GitHub accounts are *not* supported because the platform does not provide those identity providers — see the section below. Run locally with `cp config.example.js config.js`, fill in your own cloud config, then `python -m http.server 8080`. The rest of this README is in Chinese.
 
 ---
 
@@ -26,6 +31,7 @@
 - **AI 拆解**要求模型输出严格 JSON，前端做长度截断与字段校验，脏数据不会进库
 - **导入去重**：拆解结果先预览、逐条勾选，确认后才写入云端
 - **条目关联**：`item_links` 记录条目之间的引用关系，问答时一并召回
+- **中英双语**：零依赖的 `i18n.js`，中文原文作字典 key；界面文案、错误提示、toast 与 AI 输出语言同步切换
 - 亮 / 暗双主题，深色下对比度单独调过
 
 ---
@@ -46,8 +52,9 @@
 
 ```
 personal-info-agent/
-├── index.html              # 页面骨架、登录视图、SDK 引入
+├── index.html              # 页面骨架、登录视图、SDK 引入、语言切换控件
 ├── app.js                  # 全部业务逻辑（视图渲染 / 数据读写 / AI 调用）
+├── i18n.js                 # 零依赖中英字典、语言检测与切换、静态 DOM 翻译
 ├── styles.css              # 主题与组件样式
 ├── config.js               # 本机配置（已 gitignore，不提交）
 ├── config.example.js       # 配置模板，提交到仓库
@@ -113,11 +120,24 @@ python -m http.server 8080
 
 Provider 开关在 **WorkBuddy 管理页 → 认证** 中；代码里加按钮不会自动开通 Provider。若点击后提示「未打开 XX 登录」，去管理页把对应开关打开即可。邮箱若显示 `degraded`，是邮件投递配置未就绪，同页可查。
 
-#### 关于 Google / TikTok / GitHub 登录
+#### 关于 ChatGPT / Google / TikTok / GitHub 登录
 
-**本项目没有、也不打算假装支持**这些一键登录。底层云平台的公开认证 Provider 只有 `email` / `phone` / `wechat` / `workbuddy` 四种，平台文档明确把 Google 授权流程标注为已退役（retired），TikTok 与 GitHub 从未提供。OAuth 登录要求平台侧持有该厂商的应用凭证并登记回调域名白名单，前端写多少按钮都绕不过去。
+**本项目没有、也不打算假装支持**这些一键登录，包括「用 GPT / ChatGPT 账号登录」。底层云平台的公开认证能力只有：邮箱验证码、手机号验证码（含密码方式）、微信授权、WorkBuddy 账号登录，对应 4 个 Provider（`email` / `phone` / `wechat` / `workbuddy`）。平台文档明确把 Google 授权流程标注为已退役（retired），ChatGPT / OpenAI、TikTok、GitHub 从未作为身份源提供。
 
-如果确实需要，正确路径是**换一套支持 OAuth 扩展的后端**（如自建 Auth.js / Supabase Auth），或等平台开放对应 Provider——而不是在前端画一个点了就报错的按钮。当前对海外用户最实用的替代是**邮箱验证码**，Gmail 账号同样能用。
+OAuth 登录要求平台侧持有该厂商的应用凭证并登记回调域名白名单，前端写多少按钮都绕不过去。有两条**看起来可行但绝不能做**的捷径，这里一并写清楚：
+
+| 伪方案 | 为什么不行 |
+| --- | --- |
+| 加一个 ChatGPT 图标按钮，点了提示「暂不支持」 | 假功能，骗用户也骗自己；平台能力不会因按钮出现而存在 |
+| 让用户填 OpenAI API Key 当作「登录凭证」 | Key 是调用凭证不是身份；放进前端等于把密钥交给网页，既无账号体系也无法隔离数据，属于凭证泄露 |
+
+同理，平台的**模型目录里也没有 GPT 系列**（当前提供的是混元 / GLM / Kimi / DeepSeek / MiniMax 等及 `Auto`），所以「底层换成 GPT 模型」同样不是前端能决定的事。
+
+如果确实需要第三方账号登录，正确路径是**换一套支持 OAuth 扩展的后端**（如 Auth.js / Supabase Auth），或等平台开放对应 Provider。当前对海外用户最实用的替代是**邮箱验证码**：Gmail / Outlook 直接收码，不需要手机号，英文界面也会默认选中邮箱 Tab。登录页有一段低调说明主动讲清这个边界。
+
+#### 语言切换
+
+右上角 `EN` / `中文` 按钮随时切换，选择记在浏览器 `localStorage`（`pia_lang`），不上传、不影响登录账号。英文界面下，被翻译过的元素悬停会显示中文原文对照——想关掉可在控制台执行 `I18N.setZhHint(false)`。切换语言会重绘当前视图并同步 AI 输出语言，已保存的数据不变。
 
 ---
 
@@ -225,6 +245,25 @@ var GUARD = {
 
 ---
 
+## 国际化（i18n）
+
+`i18n.js` 是一个零依赖的小层，刻意**不引入 i18next 之类的库**：项目约定无构建、无运行时 CDN 依赖、断网也要能独立打开，为此多背一个外部库不划算（供应链面、体积、维护都变差）。这里需要的本质只是一张 map。
+
+| 设计点 | 做法 |
+| --- | --- |
+| 字典 | **中文原文作 key**，英文界面查表替换；中文模式直接返回原文，零开销、无 key 命名负担 |
+| 用户数据 | 只有 UI 文案字符串会走 `t()`；笔记、标题、标签、AI 回答都是变量，**永不经过翻译函数**，不存在把用户内容改掉的风险 |
+| 静态文案 | `index.html` 里的文本/属性由启动时的 DOM 扫描精确匹配，原文存进 `data-i18n-zh`，切回中文可完整还原 |
+| 语言记忆 | 浏览器语言自动判定 → `localStorage`，不写进云端、不随账号走 |
+| 中文对照 | 英文模式下给翻译过的元素加 `title`（不覆盖已有 title），`I18N.setZhHint(false)` 可关 |
+| AI 输出 | system prompt 的语言要求随界面切换：中文界面回中文，英文界面回英文；JSON 字段名始终不翻译 |
+
+**加新文案**：界面里写 `t('新的中文文案')`，再往 `i18n.js` 的 `EN` 字典补一条英文即可。如果字符串里含 HTML 标签，**英文值必须保留完全相同的标签结构**（例如 `'<h2>共 '` → `'<h2>Total '`），否则会破坏 DOM；CI 与本地自检会检查这一点。
+
+新增语言（如日语）只需再加一张字典并扩展 `setLang`，不用改业务代码。
+
+---
+
 ## 常见问题
 
 **打开链接只看到「链接不完整」**
@@ -232,6 +271,12 @@ var GUARD = {
 
 **用脚本 / 命令行抓到的不是应用内容**
 分享链接有防盗链：必须先访问带 `sharecode` 的首页拿到会话 cookie，之后的子资源请求才会放行。直接 `curl` 某个 `.js` 会被 403 挡回占位页；浏览器正常打开不受影响。
+
+**能用 ChatGPT / Google 账号登录吗**
+不能，平台没有这些 Provider，模型目录里也没有 GPT 系列。详见上文「关于 ChatGPT / Google / TikTok / GitHub 登录」。请用邮箱验证码（Gmail / Outlook 均可）。
+
+**英文界面下还能看中文吗 / 怎么切回去**
+英文界面下把鼠标悬停在文案上会显示中文原文；点右上角「中文」即可完整切回。语言选择只存在本机浏览器，不影响账号和数据。
 
 **登录页没有微信 / WorkBuddy 按钮**
 说明打开的是占位页或旧版发布产物。核对完整链接；仍是旧版就重新发布一次（`index.html` 里 CSS/JS 都带 `?v=` 缓存版本号，发新版时记得同步递增）。
@@ -257,7 +302,13 @@ var GUARD = {
 
 - 本地开发、PR 约定见 [CONTRIBUTING.md](./CONTRIBUTING.md)
 - 漏洞报告与安全边界见 [SECURITY.md](./SECURITY.md)
-- 每次 push 会在 GitHub Actions 跑静态检查：JS 语法、`config.js` 未入库、无硬编码凭证、登录页元素与绑定完整
+- 每次 push 会在 GitHub Actions 跑静态检查：`app.js` / `i18n.js` / `config.example.js` 的 JS 语法、`config.js` 未入库、无硬编码凭证、登录页元素与绑定完整
+
+## 支持这个项目
+
+如果这个项目帮你省了时间，欢迎在 **[爱发电](https://ifdian.net/a/Mrchinazhang)** 请我喝杯咖啡。
+
+不想花钱也完全没关系——点个 ⭐、提个 issue、把链接分享给需要的人，同样是支持。
 
 ## License
 

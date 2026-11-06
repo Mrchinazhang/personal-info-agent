@@ -2,9 +2,18 @@
 (function () {
   'use strict'
 
+  // tr = 双语翻译函数：中文模式原样返回，英文模式查 i18n-dict.js 的字典。
+  // 用户数据全是变量，永不经过 tr()，因此切换语言不会改动任何已保存内容。
+  var tr = window.I18N.t
   var CFG = window.PUBLIC_CONFIG
-  var CATEGORY = { idea: '想法', material: '资料', todo: '待办' }
-  var PRIORITY = { high: '高', medium: '中', low: '低' }
+  var CATEGORY = { idea: tr('想法'), material: tr('资料'), todo: tr('待办') }
+  var PRIORITY = { high: tr('高'), medium: tr('中'), low: tr('低') }
+
+  // 分类 / 优先级标签在模块加载时求值一次，切换语言后要重算
+  function refreshLabels() {
+    CATEGORY.idea = tr('想法'); CATEGORY.material = tr('资料'); CATEGORY.todo = tr('待办')
+    PRIORITY.high = tr('高'); PRIORITY.medium = tr('中'); PRIORITY.low = tr('低')
+  }
 
   var cloud = WorkBuddyCloud.createWorkBuddyCloud({
     endpoint: CFG.endpoint,
@@ -88,10 +97,10 @@
   }
   // 放行返回 null，拦截返回提示文案。手机号与邮箱共用同一套额度策略，按通道分开计数。
   function guardCheck(channel, value) {
-    if (!GUARD.registerOpen && GUARD.whitelist.indexOf(value) < 0) return '该账号暂未开通使用权限'
-    if (guardGet('otp_' + channel + '_' + value) >= GUARD.smsPerPhone) return '该账号今天获取验证码次数已达上限，请明天再试'
-    if (guardGet('smsall') >= GUARD.smsPerDay) return '本站今日验证码发送量已达上限，请明天再试'
-    if (guardGet('reg') >= GUARD.regPerDevice) return '当前浏览器今日注册账号数已达上限，请明天再试'
+    if (!GUARD.registerOpen && GUARD.whitelist.indexOf(value) < 0) return tr('该账号暂未开通使用权限')
+    if (guardGet('otp_' + channel + '_' + value) >= GUARD.smsPerPhone) return tr('该账号今天获取验证码次数已达上限，请明天再试')
+    if (guardGet('smsall') >= GUARD.smsPerDay) return tr('本站今日验证码发送量已达上限，请明天再试')
+    if (guardGet('reg') >= GUARD.regPerDevice) return tr('当前浏览器今日注册账号数已达上限，请明天再试')
     return null
   }
 
@@ -112,12 +121,12 @@
   function validateLoginValue(method, raw) {
     var v = normalizeLoginValue(method, raw)
     if (method === 'email') {
-      if (!/^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$/.test(v)) return '请输入正确的邮箱地址'
+      if (!/^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$/.test(v)) return tr('请输入正确的邮箱地址')
       return null
     }
     if (/^1\d{10}$/.test(v)) return null
     if (/^\+[1-9]\d{6,14}$/.test(v)) return null
-    return '中国大陆请输入 11 位手机号；海外号码请以 + 区号开头（如 +14155550123）'
+    return tr('中国大陆请输入 11 位手机号；海外号码请以 + 区号开头（如 +14155550123）')
   }
 
   /* ---------------- 大模型 ---------------- */
@@ -125,12 +134,12 @@
     if (err && err.timeout) return err.message
     var code = (err && err.error && err.error.code) || ''
     var msg = (err && err.error && err.error.message) || (err && err.message) || ''
-    if (code.indexOf('auth_') === 0) return 'AI 服务鉴权未通过，请刷新页面后重试'
-    if (code.indexOf('quota_') === 0) return 'AI 调用额度已用尽或触发限流，请稍后再试'
-    if (code.indexOf('gateway_') === 0 || code.indexOf('model_') === 0) return 'AI 服务暂时不可用，请稍后重试'
-    if (code.indexOf('request_') === 0) return 'AI 请求被拒绝：' + msg
-    if (code.indexOf('internal_') === 0) return 'AI 服务内部错误，请稍后重试'
-    return msg || 'AI 调用失败，请稍后重试'
+    if (code.indexOf('auth_') === 0) return tr('AI 服务鉴权未通过，请刷新页面后重试')
+    if (code.indexOf('quota_') === 0) return tr('AI 调用额度已用尽或触发限流，请稍后再试')
+    if (code.indexOf('gateway_') === 0 || code.indexOf('model_') === 0) return tr('AI 服务暂时不可用，请稍后重试')
+    if (code.indexOf('request_') === 0) return tr('AI 请求被拒绝：') + msg
+    if (code.indexOf('internal_') === 0) return tr('AI 服务内部错误，请稍后重试')
+    return msg || tr('AI 调用失败，请稍后重试')
   }
 
   // 每次调用都必须以 system 消息开头；统一走 stream: true
@@ -165,7 +174,7 @@
         return acc
       } catch (e) {
         if (ctrl.signal.aborted) {
-          var t = new Error('AI 响应超时，请重试或换一段更短的内容')
+          var t = new Error(tr('AI 响应超时，请重试或换一段更短的内容'))
           t.timeout = true
           throw t
         }
@@ -185,10 +194,20 @@
     return JSON.parse(s)
   }
 
-  function sys(text) { return { role: 'system', content: text } }
+  function sys(text) {
+    // AI 内部指令保持中文即可（用户看不到），但输出语言要跟随界面。
+    // JSON 字段名与枚举值是代码契约，必须保持英文。
+    var suffix = (window.I18N && window.I18N.currentLang() === 'en')
+      ? '\n\nRespond in English. Keep JSON keys and enum values (idea/material/todo, high/medium/low) unchanged.'
+      : ''
+    return { role: 'system', content: text + suffix }
+  }
 
-  var SYS_BASE = '你是「个人信息管家」的智能整理引擎，服务于一位用户的私人知识库。' +
-    '只依据用户给出的内容作答，不编造事实，不臆测未提供的信息。输出使用简体中文，简洁克制。'
+  // 改成函数：切换语言后下一次调用重新求值，不会残留旧语言
+  function sysBase() {
+    return tr('你是「个人信息管家」的智能整理引擎，服务于一位用户的私人知识库。') +
+      tr('只依据用户给出的内容作答，不编造事实，不臆测未提供的信息。输出使用简体中文，简洁克制。')
+  }
 
   /* ---------------- 认证 ---------------- */
   var pendingOtp = null
@@ -196,7 +215,7 @@
   function ensureSession() {
     if (state.session) return true
     showAuth()
-    toast('请先登录后再操作')
+    toast(tr('请先登录后再操作'))
     return false
   }
 
@@ -210,13 +229,13 @@
     }
     var provider = url.searchParams.get('provider')
     if (provider !== 'workbuddy' && provider !== 'wechat') {
-      setAuthError('授权回调缺少有效的登录方式，请重新登录。')
+      setAuthError(tr('授权回调缺少有效的登录方式，请重新登录。'))
       showAuth()
       return
     }
     var handler = provider === 'workbuddy' ? cloud.auth.handleWorkBuddyCallback : cloud.auth.handleWechatWebCallback
     if (typeof handler !== 'function') {
-      setAuthError('当前环境暂不支持该登录方式，请改用手机号登录。')
+      setAuthError(tr('当前环境暂不支持该登录方式，请改用手机号登录。'))
       showAuth()
       return
     }
@@ -264,7 +283,7 @@
 
   function renderUser() {
     var u = state.session && state.session.user
-    var name = (u && (u.name || u.phone || u.email)) || '我的账号'
+    var name = (u && (u.name || u.phone || u.email)) || tr('我的账号')
     $('#user-chip').textContent = '👤 ' + name
   }
 
@@ -273,16 +292,16 @@
     var btn = $('#send-code-btn')
     var left = sec
     btn.disabled = true
-    btn.textContent = left + 's 后重发'
+    btn.textContent = left + tr('s 后重发')
     clearInterval(codeTimer)
     codeTimer = setInterval(function () {
       left -= 1
       if (left <= 0) {
         clearInterval(codeTimer)
         btn.disabled = false
-        btn.textContent = '获取验证码'
+        btn.textContent = tr('获取验证码')
       } else {
-        btn.textContent = left + 's 后重发'
+        btn.textContent = left + tr('s 后重发')
       }
     }, 1000)
   }
@@ -293,7 +312,7 @@
       method: method,
       input: $(method === 'email' ? '#email-input' : '#phone-input'),
       error: $(method === 'email' ? '#email-error' : '#phone-error'),
-      label: method === 'email' ? '邮箱' : '手机号'
+      label: method === 'email' ? tr('邮箱') : tr('手机号')
     }
   }
 
@@ -315,7 +334,7 @@
     clearInterval(codeTimer)
     var send = $('#send-code-btn')
     send.disabled = false
-    send.textContent = '获取验证码'
+    send.textContent = tr('获取验证码')
   }
 
   // OAuth 回调必须落在站点根路径，但要保留应用自身的参数（尤其 ?sharecode=…）。
@@ -329,11 +348,13 @@
   function oauthError(res, fallback) {
     if (!res || !res.error) return false
     var msg = res.error.message || fallback
-    setAuthError(msg + '（若提示未开通，请在 WorkBuddy 管理页 → 认证 中开启该登录方式）')
+    setAuthError(msg + tr('（若提示未开通，请在 WorkBuddy 管理页 → 认证 中开启该登录方式）'))
     return true
   }
 
   function bindAuth() {
+    // 国际用户（浏览器非中文）默认落在邮箱 Tab：Gmail / Outlook 直接收码，无需手机号
+    if (window.I18N && window.I18N.currentLang() === 'en') switchAuthMethod('email')
     $('#phone-input').addEventListener('input', function () { $('#phone-error').textContent = '' })
     $('#email-input').addEventListener('input', function () { $('#email-error').textContent = '' })
     $$('.auth-tab').forEach(function (b) {
@@ -351,15 +372,15 @@
       setAuthError('')
       var btn = this
       btn.disabled = true
-      btn.textContent = '发送中…'
+      btn.textContent = tr('发送中…')
       // email 与 phone 互斥，一次只传一个
       var payload = {}
       payload[ctx.method] = value
       var sent = await cloud.auth.sendOtp(payload)
       btn.disabled = false
       if (sent.error) {
-        btn.textContent = '获取验证码'
-        setAuthError(sent.error.message || '验证码发送失败')
+        btn.textContent = tr('获取验证码')
+        setAuthError(sent.error.message || tr('验证码发送失败'))
         return
       }
       pendingOtp = {
@@ -371,7 +392,7 @@
       guardInc('smsall')
       guardInc('otp_' + ctx.method + '_' + value)
       if (sent.data && sent.data.isExistingUser === false) guardInc('reg')
-      toast(ctx.method === 'email' ? '验证码已发送到邮箱' : '验证码已发送')
+      toast(ctx.method === 'email' ? tr('验证码已发送到邮箱') : tr('验证码已发送'))
       startCountdown(60)
     })
 
@@ -381,14 +402,14 @@
       if (err) { ctx.error.textContent = err; return }
       var value = normalizeLoginValue(ctx.method, ctx.input.value)
       var code = $('#code-input').value.trim()
-      if (!code) { setAuthError('请输入收到的验证码'); return }
+      if (!code) { setAuthError(tr('请输入收到的验证码')); return }
       if (!pendingOtp || pendingOtp.method !== ctx.method || pendingOtp.value !== value) {
-        setAuthError('请先为当前' + ctx.label + '获取验证码')
+        setAuthError(tr('请先为当前') + ctx.label + tr('获取验证码'))
         return
       }
       var btn = this
       btn.disabled = true
-      btn.textContent = '登录中…'
+      btn.textContent = tr('登录中…')
       var args = {
         verificationId: pendingOtp.verificationId,
         isExistingUser: pendingOtp.isExistingUser,
@@ -397,9 +418,9 @@
       args[pendingOtp.method] = pendingOtp.value
       var done = await cloud.auth.verifyOtp(args)
       btn.disabled = false
-      btn.textContent = '登录 / 注册'
+      btn.textContent = tr('登录 / 注册')
       if (done.error) {
-        setAuthError(done.error.message || '验证码不正确')
+        setAuthError(done.error.message || tr('验证码不正确'))
         return
       }
       pendingOtp = null
@@ -410,14 +431,14 @@
     $('#wechat-btn').addEventListener('click', async function () {
       setAuthError('')
       var res = await cloud.auth.signInWithOAuth({ provider: 'wechat', redirectTo: oauthRedirect() })
-      if (oauthError(res, '微信登录不可用')) return
+      if (oauthError(res, tr('微信登录不可用'))) return
       location.assign(res.data.url)
     })
 
     $('#workbuddy-btn').addEventListener('click', async function () {
       setAuthError('')
       var res = await cloud.auth.signInWithOAuth({ provider: 'workbuddy', redirectTo: oauthRedirect() })
-      if (oauthError(res, 'WorkBuddy 登录不可用')) return
+      if (oauthError(res, tr('WorkBuddy 登录不可用'))) return
       location.assign(res.data.url)
     })
 
@@ -438,7 +459,7 @@
     var arr = Array.isArray(list) ? list : (list && list.data) || []
     state.models = arr.filter(function (m) { return m && m.id && m.enabled !== false && m.disabled !== true })
     if (!state.models.length) {
-      toast('当前没有可用的 AI 模型，AI 整理功能将不可用')
+      toast(tr('当前没有可用的 AI 模型，AI 整理功能将不可用'))
       return
     }
     var def = state.models.filter(function (m) { return m.isDefault })[0] || state.models[0]
@@ -525,25 +546,25 @@
   function viewCapture() {
     return '' +
       '<div class="card">' +
-        '<h2 class="card-title">记下此刻的想法</h2>' +
-        '<p class="card-desc">粘贴或输入任意内容。AI 会判断它属于想法 / 资料 / 待办，自动生成标题、标签、摘要与重点，并把它关联到已有的相关内容。</p>' +
-        '<textarea id="capture-input" class="big" placeholder="例如：下周要把物联网实训的传感器数据接进 Flask，记得先申请云平台 API Key，文档在共享盘 /iot 目录下…"></textarea>' +
+        tr('<h2 class="card-title">记下此刻的想法</h2>') +
+        tr('<p class="card-desc">粘贴或输入任意内容。AI 会判断它属于想法 / 资料 / 待办，自动生成标题、标签、摘要与重点，并把它关联到已有的相关内容。</p>') +
+        tr('<textarea id="capture-input" class="big" placeholder="例如：下周要把物联网实训的传感器数据接进 Flask，记得先申请云平台 API Key，文档在共享盘 /iot 目录下…"></textarea>') +
         '<div class="row" style="margin-top:14px">' +
-          '<span class="time">分类</span>' +
-          '<button type="button" class="chip active" data-cat="auto">自动判断</button>' +
-          '<button type="button" class="chip" data-cat="idea">想法</button>' +
-          '<button type="button" class="chip" data-cat="material">资料</button>' +
-          '<button type="button" class="chip" data-cat="todo">待办</button>' +
+          tr('<span class="time">分类</span>') +
+          tr('<button type="button" class="chip active" data-cat="auto">自动判断</button>') +
+          tr('<button type="button" class="chip" data-cat="idea">想法</button>') +
+          tr('<button type="button" class="chip" data-cat="material">资料</button>') +
+          tr('<button type="button" class="chip" data-cat="todo">待办</button>') +
           '<div class="spacer"></div>' +
-          '<button type="button" id="capture-save" class="btn btn-solid">保存并智能整理</button>' +
+          tr('<button type="button" id="capture-save" class="btn btn-solid">保存并智能整理</button>') +
         '</div>' +
         '<div class="row" style="margin-top:10px">' +
-          '<span class="time">要录入网页文章、聊天记录或本地文件？</span>' +
-          '<button type="button" class="btn btn-sm" id="goto-import">📥 去内容导入</button>' +
+          tr('<span class="time">要录入网页文章、聊天记录或本地文件？</span>') +
+          tr('<button type="button" class="btn btn-sm" id="goto-import">📥 去内容导入</button>') +
         '</div>' +
       '</div>' +
       '<div class="card">' +
-        '<div class="section-head"><h2>最近记录</h2><span class="time">共 ' + state.items.length + ' 条</span></div>' +
+        tr('<div class="section-head"><h2>最近记录</h2><span class="time">共 ') + state.items.length + tr(' 条</span></div>') +
         renderItemList(state.items.slice(0, 5)) +
       '</div>'
   }
@@ -554,49 +575,49 @@
     var head = '' +
       '<div class="card">' +
         '<div class="filters">' +
-          '<button type="button" class="chip' + (state.filter.category === 'all' ? ' active' : '') + '" data-cat="all">全部</button>' +
-          '<button type="button" class="chip' + (state.filter.category === 'idea' ? ' active' : '') + '" data-cat="idea">想法</button>' +
-          '<button type="button" class="chip' + (state.filter.category === 'material' ? ' active' : '') + '" data-cat="material">资料</button>' +
-          '<button type="button" class="chip' + (state.filter.category === 'todo' ? ' active' : '') + '" data-cat="todo">待办</button>' +
-          '<input id="search-input" class="search-input" placeholder="关键词检索：标题 / 正文 / 摘要 / 标签 / 要点" value="' + esc(state.filter.q) + '" />' +
+          '<button type="button" class="chip' + (state.filter.category === 'all' ? ' active' : '') + tr('" data-cat="all">全部</button>') +
+          '<button type="button" class="chip' + (state.filter.category === 'idea' ? ' active' : '') + tr('" data-cat="idea">想法</button>') +
+          '<button type="button" class="chip' + (state.filter.category === 'material' ? ' active' : '') + tr('" data-cat="material">资料</button>') +
+          '<button type="button" class="chip' + (state.filter.category === 'todo' ? ' active' : '') + tr('" data-cat="todo">待办</button>') +
+          tr('<input id="search-input" class="search-input" placeholder="关键词检索：标题 / 正文 / 摘要 / 标签 / 要点" value="') + esc(state.filter.q) + '" />' +
         '</div>' +
         (tags.length ? '<div class="filters" style="margin-top:10px">' +
-          '<span class="time">标签</span>' +
-          '<button type="button" class="chip' + (!state.filter.tag ? ' active' : '') + '" data-tag="">不限</button>' +
+          tr('<span class="time">标签</span>') +
+          '<button type="button" class="chip' + (!state.filter.tag ? ' active' : '') + tr('" data-tag="">不限</button>') +
           tags.slice(0, 14).map(function (t) {
             return '<button type="button" class="chip' + (state.filter.tag === t ? ' active' : '') + '" data-tag="' + esc(t) + '">' + esc(t) + '</button>'
           }).join('') +
         '</div>' : '') +
       '</div>'
-    return head + '<div class="section-head"><h2>共 ' + list.length + ' 条</h2></div>' + renderItemList(list)
+    return head + tr('<div class="section-head"><h2>共 ') + list.length + tr(' 条</h2></div>') + renderItemList(list)
   }
 
   function renderItemList(list) {
     if (!list.length) {
-      return '<div class="empty"><div class="empty-icon">🗂️</div><div>还没有内容，去「快速记录」写下第一条吧</div></div>'
+      return tr('<div class="empty"><div class="empty-icon">🗂️</div><div>还没有内容，去「快速记录」写下第一条吧</div></div>')
     }
     return '<div class="item-list">' + list.map(function (it) {
       var rels = relationsOf(it.id)
       return '' +
         '<div class="item">' +
           '<div class="item-head">' +
-            '<h3 class="item-title">' + esc(it.title || '（无标题）') + '</h3>' +
+            '<h3 class="item-title">' + esc(it.title || tr('（无标题）')) + '</h3>' +
             '<span class="badge badge-' + esc(it.category) + '">' + esc(CATEGORY[it.category] || it.category) + '</span>' +
           '</div>' +
           (it.summary ? '<p class="item-summary">' + esc(it.summary) + '</p>' : '') +
           (it.content ? '<div class="item-content">' + esc(it.content) + '</div>' : '') +
           '<div class="item-meta">' +
             (it.tags || []).map(function (t) { return '<span class="tag">' + esc(t) + '</span>' }).join('') +
-            (it.priority ? '<span class="badge prio-' + esc(it.priority) + '">' + esc(PRIORITY[it.priority] || it.priority) + '优先</span>' : '') +
-            (it.due_date ? '<span class="time">截止 ' + esc(fmtDay(it.due_date)) + '</span>' : '') +
+            (it.priority ? '<span class="badge prio-' + esc(it.priority) + '">' + esc(PRIORITY[it.priority] || it.priority) + tr('优先</span>') : '') +
+            (it.due_date ? tr('<span class="time">截止 ') + esc(fmtDay(it.due_date)) + '</span>' : '') +
             '<span class="time">' + esc(fmtDate(it.created_at)) + '</span>' +
-            (rels.length ? '<span class="time">🔗 关联 ' + rels.length + ' 条</span>' : '') +
+            (rels.length ? tr('<span class="time">🔗 关联 ') + rels.length + tr(' 条</span>') : '') +
           '</div>' +
           '<div class="item-actions">' +
-            '<button type="button" class="btn btn-sm" data-open="' + it.id + '">查看详情</button>' +
-            '<button type="button" class="btn btn-sm" data-points="' + it.id + '">提取重点</button>' +
-            (it.is_todo ? '<button type="button" class="btn btn-sm" data-done="' + it.id + '">' + (it.todo_done ? '标记未完成' : '标记完成') + '</button>' : '') +
-            '<button type="button" class="btn btn-sm btn-danger" data-del="' + it.id + '">删除</button>' +
+            '<button type="button" class="btn btn-sm" data-open="' + it.id + tr('">查看详情</button>') +
+            '<button type="button" class="btn btn-sm" data-points="' + it.id + tr('">提取重点</button>') +
+            (it.is_todo ? '<button type="button" class="btn btn-sm" data-done="' + it.id + '">' + (it.todo_done ? tr('标记未完成') : tr('标记完成')) + '</button>' : '') +
+            '<button type="button" class="btn btn-sm btn-danger" data-del="' + it.id + tr('">删除</button>') +
           '</div>' +
         '</div>'
     }).join('') + '</div>'
@@ -615,13 +636,13 @@
     return '' +
       '<div class="card">' +
         '<div class="section-head">' +
-          '<h2>待办清单</h2>' +
-          '<div class="row"><span class="time">未完成 ' + open.length + ' · 已完成 ' + done.length + '</span>' +
-          '<button type="button" class="btn btn-solid btn-sm" id="ai-plan">AI 整理待办</button></div>' +
+          tr('<h2>待办清单</h2>') +
+          tr('<div class="row"><span class="time">未完成 ') + open.length + tr(' · 已完成 ') + done.length + '</span>' +
+          tr('<button type="button" class="btn btn-solid btn-sm" id="ai-plan">AI 整理待办</button></div>') +
         '</div>' +
         '<div id="plan-box" class="chat-box hidden" data-placeholder=""></div>' +
-        (open.length ? open.map(todoRow).join('') : '<div class="empty" style="border:none"><div class="empty-icon">✅</div><div>没有未完成的待办</div></div>') +
-        (done.length ? '<div class="section-head" style="margin-top:18px"><h2>已完成</h2></div>' + done.map(todoRow).join('') : '') +
+        (open.length ? open.map(todoRow).join('') : tr('<div class="empty" style="border:none"><div class="empty-icon">✅</div><div>没有未完成的待办</div></div>')) +
+        (done.length ? tr('<div class="section-head" style="margin-top:18px"><h2>已完成</h2></div>') + done.map(todoRow).join('') : '') +
       '</div>'
   }
 
@@ -632,70 +653,70 @@
         '<div style="flex:1;min-width:0">' +
           '<div class="todo-title">' + esc(it.title) + '</div>' +
           '<div class="todo-sub">' +
-            (it.priority ? '<span class="badge prio-' + esc(it.priority) + '">' + esc(PRIORITY[it.priority]) + '优先</span> ' : '') +
-            (it.due_date ? '截止 ' + esc(fmtDay(it.due_date)) + ' · ' : '') +
+            (it.priority ? '<span class="badge prio-' + esc(it.priority) + '">' + esc(PRIORITY[it.priority]) + tr('优先</span> ') : '') +
+            (it.due_date ? tr('截止 ') + esc(fmtDay(it.due_date)) + ' · ' : '') +
             esc(fmtDate(it.created_at)) +
           '</div>' +
           (it.summary ? '<div class="todo-sub">' + esc(it.summary) + '</div>' : '') +
         '</div>' +
-        '<button type="button" class="btn btn-sm" data-open="' + it.id + '">详情</button>' +
+        '<button type="button" class="btn btn-sm" data-open="' + it.id + tr('">详情</button>') +
       '</div>'
   }
 
   function viewAsk() {
     return '' +
       '<div class="card">' +
-        '<h2 class="card-title">基于你的资料库提问</h2>' +
-        '<p class="card-desc">AI 会先在你已记录的 ' + state.items.length + ' 条内容中检索相关片段，再作答，并列出引用来源。</p>' +
+        tr('<h2 class="card-title">基于你的资料库提问</h2>') +
+        tr('<p class="card-desc">AI 会先在你已记录的 ') + state.items.length + tr(' 条内容中检索相关片段，再作答，并列出引用来源。</p>') +
         '<div class="ask-row">' +
-          '<input id="ask-input" placeholder="例如：我最近在物联网实训上有哪些待推进的事？" />' +
-          '<button type="button" class="btn btn-solid" id="ask-btn">提问</button>' +
+          tr('<input id="ask-input" placeholder="例如：我最近在物联网实训上有哪些待推进的事？" />') +
+          tr('<button type="button" class="btn btn-solid" id="ask-btn">提问</button>') +
         '</div>' +
         '<div class="row" style="margin-top:10px">' +
-          '<span class="time">资料库里没有的内容，可以先导入再提问</span>' +
-          '<button type="button" class="btn btn-sm" id="goto-import">📥 导入外部内容</button>' +
+          tr('<span class="time">资料库里没有的内容，可以先导入再提问</span>') +
+          tr('<button type="button" class="btn btn-sm" id="goto-import">📥 导入外部内容</button>') +
         '</div>' +
-        '<div id="answer-box" class="chat-box" data-placeholder="答案会在这里流式生成…" style="margin-top:14px"></div>' +
+        tr('<div id="answer-box" class="chat-box" data-placeholder="答案会在这里流式生成…" style="margin-top:14px"></div>') +
         '<div id="refs-box" class="row" style="margin-top:10px"></div>' +
       '</div>' +
       '<div class="card">' +
-        '<div class="section-head"><h2>问答历史</h2></div>' +
+        tr('<div class="section-head"><h2>问答历史</h2></div>') +
         (state.chats.length ? state.chats.map(function (c) {
           return '<div class="history-item"><div class="history-q">Q：' + esc(c.question) + '</div>' +
             '<div class="history-a">' + esc(c.answer) + '</div>' +
             '<div class="time" style="margin-top:6px">' + esc(fmtDate(c.created_at)) + '</div></div>'
-        }).join('') : '<div class="time">还没有提问记录</div>') +
+        }).join('') : tr('<div class="time">还没有提问记录</div>')) +
       '</div>'
   }
 
   function viewReports() {
     return '' +
       '<div class="card">' +
-        '<h2 class="card-title">生成阶段总结</h2>' +
-        '<p class="card-desc">AI 会汇总选定时间段内的全部记录，输出阶段总结、重点进展与后续行动建议。</p>' +
+        tr('<h2 class="card-title">生成阶段总结</h2>') +
+        tr('<p class="card-desc">AI 会汇总选定时间段内的全部记录，输出阶段总结、重点进展与后续行动建议。</p>') +
         '<div class="row">' +
-          '<button type="button" class="chip' + (state.reportDays === 7 ? ' active' : '') + '" data-days="7">最近 7 天</button>' +
-          '<button type="button" class="chip' + (state.reportDays === 30 ? ' active' : '') + '" data-days="30">最近 30 天</button>' +
-          '<button type="button" class="chip' + (state.reportDays === 90 ? ' active' : '') + '" data-days="90">最近 90 天</button>' +
+          '<button type="button" class="chip' + (state.reportDays === 7 ? ' active' : '') + tr('" data-days="7">最近 7 天</button>') +
+          '<button type="button" class="chip' + (state.reportDays === 30 ? ' active' : '') + tr('" data-days="30">最近 30 天</button>') +
+          '<button type="button" class="chip' + (state.reportDays === 90 ? ' active' : '') + tr('" data-days="90">最近 90 天</button>') +
           '<div class="spacer"></div>' +
-          '<button type="button" class="btn btn-solid" id="gen-report">生成总结</button>' +
+          tr('<button type="button" class="btn btn-solid" id="gen-report">生成总结</button>') +
         '</div>' +
         '<div id="report-box" class="chat-box hidden" data-placeholder="" style="margin-top:14px"></div>' +
       '</div>' +
       '<div class="card">' +
-        '<div class="section-head"><h2>历史总结</h2></div>' +
-        (state.reports.length ? state.reports.map(renderReport).join('') : '<div class="time">还没有生成过总结</div>') +
+        tr('<div class="section-head"><h2>历史总结</h2></div>') +
+        (state.reports.length ? state.reports.map(renderReport).join('') : tr('<div class="time">还没有生成过总结</div>')) +
       '</div>'
   }
 
   function renderReport(r) {
     return '' +
       '<div class="report">' +
-        '<h3>' + esc(r.period_label) + ' <span class="time">· ' + esc(fmtDate(r.created_at)) + ' · 基于 ' + r.item_count + ' 条记录</span></h3>' +
+        '<h3>' + esc(r.period_label) + ' <span class="time">· ' + esc(fmtDate(r.created_at)) + tr(' · 基于 ') + r.item_count + tr(' 条记录</span></h3>') +
         '<div class="report-body">' + esc(r.summary) + '</div>' +
-        ((r.highlights && r.highlights.length) ? '<div class="list-block"><div class="lb-title">重点进展</div><ul>' +
+        ((r.highlights && r.highlights.length) ? tr('<div class="list-block"><div class="lb-title">重点进展</div><ul>') +
           r.highlights.map(function (h) { return '<li>' + esc(h) + '</li>' }).join('') + '</ul></div>' : '') +
-        ((r.actions && r.actions.length) ? '<div class="list-block"><div class="lb-title">后续行动建议</div><ol>' +
+        ((r.actions && r.actions.length) ? tr('<div class="list-block"><div class="lb-title">后续行动建议</div><ol>') +
           r.actions.map(function (a) { return '<li>' + esc(a) + '</li>' }).join('') + '</ol></div>' : '') +
       '</div>'
   }
@@ -720,7 +741,7 @@
   // 网页抓取：直连 → 公共代理 → 失败提示手动粘贴
   async function fetchUrlText(rawUrl) {
     var url = rawUrl.trim()
-    if (!/^https?:\/\/\S+$/i.test(url)) throw new Error('请输入以 http:// 或 https:// 开头的完整网址')
+    if (!/^https?:\/\/\S+$/i.test(url)) throw new Error(tr('请输入以 http:// 或 https:// 开头的完整网址'))
     var lastErr = null
     try {
       var r = await fetch(url, { mode: 'cors', redirect: 'follow', credentials: 'omit' })
@@ -749,56 +770,56 @@
     var srcPanel = ''
     if (im.source === 'paste') {
       srcPanel = '<div class="row">' +
-        '<button type="button" class="btn btn-sm" id="im-clipboard">📋 从剪贴板读取</button>' +
-        '<span class="src-hint" style="margin:0">在网页或聊天窗口里选中内容复制后，点这里一键读入</span></div>'
+        tr('<button type="button" class="btn btn-sm" id="im-clipboard">📋 从剪贴板读取</button>') +
+        tr('<span class="src-hint" style="margin:0">在网页或聊天窗口里选中内容复制后，点这里一键读入</span></div>')
     } else if (im.source === 'file') {
       srcPanel = '<div class="row"><input type="file" id="im-file" class="file-input" accept=".txt,.md,.markdown,.csv,.json,.log,.html,.htm,.xml,.yml,.yaml" /></div>' +
-        '<p class="src-hint">支持 txt / md / csv / json / log / html 等文本文件；微信、飞书等导出的聊天记录 txt 可直接上传。文件只在本机读取，不会先上传到服务器。</p>'
+        tr('<p class="src-hint">支持 txt / md / csv / json / log / html 等文本文件；微信、飞书等导出的聊天记录 txt 可直接上传。文件只在本机读取，不会先上传到服务器。</p>')
     } else {
       srcPanel = '<div class="row">' +
-        '<input id="im-url" class="search-input" placeholder="https://… 粘贴网页地址" value="' + esc(im.url || '') + '" />' +
-        '<button type="button" class="btn btn-sm btn-solid" id="im-fetch">抓取正文</button></div>' +
-        '<p class="src-hint">部分网站禁止跨域读取，抓取失败时会自动尝试公共代理；仍失败请改用「粘贴」方式复制正文。</p>'
+        tr('<input id="im-url" class="search-input" placeholder="https://… 粘贴网页地址" value="') + esc(im.url || '') + '" />' +
+        tr('<button type="button" class="btn btn-sm btn-solid" id="im-fetch">抓取正文</button></div>') +
+        tr('<p class="src-hint">部分网站禁止跨域读取，抓取失败时会自动尝试公共代理；仍失败请改用「粘贴」方式复制正文。</p>')
     }
 
     return '' +
       '<div class="card">' +
-        '<h2 class="card-title">读取外部内容</h2>' +
-        '<p class="card-desc">把网页文章、聊天对话或本地文件读进来，先让 AI 拆解分析，再逐条勾选入库。</p>' +
+        tr('<h2 class="card-title">读取外部内容</h2>') +
+        tr('<p class="card-desc">把网页文章、聊天对话或本地文件读进来，先让 AI 拆解分析，再逐条勾选入库。</p>') +
         '<div class="filters">' +
-          '<button type="button" class="chip' + (im.source === 'paste' ? ' active' : '') + '" data-src="paste">📋 粘贴 / 剪贴板</button>' +
-          '<button type="button" class="chip' + (im.source === 'file' ? ' active' : '') + '" data-src="file">📄 上传文件</button>' +
-          '<button type="button" class="chip' + (im.source === 'url' ? ' active' : '') + '" data-src="url">🌐 网页链接</button>' +
+          '<button type="button" class="chip' + (im.source === 'paste' ? ' active' : '') + tr('" data-src="paste">📋 粘贴 / 剪贴板</button>') +
+          '<button type="button" class="chip' + (im.source === 'file' ? ' active' : '') + tr('" data-src="file">📄 上传文件</button>') +
+          '<button type="button" class="chip' + (im.source === 'url' ? ' active' : '') + tr('" data-src="url">🌐 网页链接</button>') +
         '</div>' +
         '<div class="src-panel" style="margin-top:12px">' + srcPanel + '</div>' +
-        '<label class="mini-label">内容预览（可编辑）</label>' +
-        '<textarea id="im-text" class="big" placeholder="这里会显示待导入的内容，可以直接修改…">' + esc(im.text) + '</textarea>' +
+        tr('<label class="mini-label">内容预览（可编辑）</label>') +
+        tr('<textarea id="im-text" class="big" placeholder="这里会显示待导入的内容，可以直接修改…">') + esc(im.text) + '</textarea>' +
         '<div class="row" style="margin-top:12px">' +
-          '<span class="time" id="im-count">' + im.text.length + ' 字</span>' +
+          '<span class="time" id="im-count">' + im.text.length + tr(' 字</span>') +
           '<div class="spacer"></div>' +
-          '<span class="time">拆解方式</span>' +
-          '<button type="button" class="chip' + (im.mode === 'auto' ? ' active' : '') + '" data-mode="auto">自动判断</button>' +
-          '<button type="button" class="chip' + (im.mode === 'chat' ? ' active' : '') + '" data-mode="chat">聊天记录</button>' +
-          '<button type="button" class="chip' + (im.mode === 'article' ? ' active' : '') + '" data-mode="article">网页文章</button>' +
-          '<button type="button" class="chip' + (im.mode === 'single' ? ' active' : '') + '" data-mode="single">整段单条</button>' +
-          '<button type="button" class="btn" id="im-clear">清空</button>' +
-          '<button type="button" class="btn btn-solid" id="im-analyze">AI 分析并拆解</button>' +
+          tr('<span class="time">拆解方式</span>') +
+          '<button type="button" class="chip' + (im.mode === 'auto' ? ' active' : '') + tr('" data-mode="auto">自动判断</button>') +
+          '<button type="button" class="chip' + (im.mode === 'chat' ? ' active' : '') + tr('" data-mode="chat">聊天记录</button>') +
+          '<button type="button" class="chip' + (im.mode === 'article' ? ' active' : '') + tr('" data-mode="article">网页文章</button>') +
+          '<button type="button" class="chip' + (im.mode === 'single' ? ' active' : '') + tr('" data-mode="single">整段单条</button>') +
+          tr('<button type="button" class="btn" id="im-clear">清空</button>') +
+          tr('<button type="button" class="btn btn-solid" id="im-analyze">AI 分析并拆解</button>') +
         '</div>' +
       '</div>' +
       (im.result ? renderImportResult() : '') +
       '<div class="card">' +
-        '<h2 class="card-title">网页一键抓取小工具</h2>' +
-        '<p class="card-desc">把下面这段代码存成浏览器书签，之后在任意网页点一下书签，就会自动复制该页正文并打开本站导入页，粘贴即可分析。</p>' +
+        tr('<h2 class="card-title">网页一键抓取小工具</h2>') +
+        tr('<p class="card-desc">把下面这段代码存成浏览器书签，之后在任意网页点一下书签，就会自动复制该页正文并打开本站导入页，粘贴即可分析。</p>') +
         '<textarea class="bookmarklet" id="bm-code" readonly>' + esc(bookmarkletCode()) + '</textarea>' +
         '<div class="row" style="margin-top:10px">' +
-          '<button type="button" class="btn btn-sm" id="bm-copy">复制代码</button>' +
-          '<span class="src-hint" style="margin:0">使用方法：浏览器书签管理器 → 新建书签 → 网址粘贴这段代码 → 命名「读到管家」</span>' +
+          tr('<button type="button" class="btn btn-sm" id="bm-copy">复制代码</button>') +
+          tr('<span class="src-hint" style="margin:0">使用方法：浏览器书签管理器 → 新建书签 → 网址粘贴这段代码 → 命名「读到管家」</span>') +
         '</div>' +
       '</div>'
   }
 
   function bookmarkletCode() {
-    return "javascript:(function(){var s=window.getSelection().toString().trim();var t=s||document.body.innerText;if(!t){alert('没有读到内容');return;}navigator.clipboard.writeText(t).then(function(){alert('已复制 '+t.length+' 字，即将打开导入页');window.open('" + APP_URL + "?view=import','_blank');}).catch(function(){prompt('复制这段内容：',t);});})();"
+    return tr("javascript:(function(){var s=window.getSelection().toString().trim();var t=s||document.body.innerText;if(!t){alert('没有读到内容');return;}navigator.clipboard.writeText(t).then(function(){alert('已复制 '+t.length+' 字，即将打开导入页');window.open('") + APP_URL + tr("?view=import','_blank');}).catch(function(){prompt('复制这段内容：',t);});})();")
   }
 
   function renderImportResult() {
@@ -806,22 +827,22 @@
     var picked = Object.keys(state.im.selected).filter(function (k) { return state.im.selected[k] }).length
     return '' +
       '<div class="card" id="im-result-anchor">' +
-        '<div class="section-head"><h2>AI 分析结果</h2><span class="time">共拆解出 ' + im.items.length + ' 条 · 已选 ' + picked + ' 条</span></div>' +
+        tr('<div class="section-head"><h2>AI 分析结果</h2><span class="time">共拆解出 ') + im.items.length + tr(' 条 · 已选 ') + picked + tr(' 条</span></div>') +
         (im.analysis ? '<div class="analysis-box">' + esc(im.analysis) + '</div>' : '') +
         '<div class="row" style="margin-top:14px">' +
-          '<button type="button" class="btn btn-sm" id="im-all">全选</button>' +
-          '<button type="button" class="btn btn-sm" id="im-none">全不选</button>' +
+          tr('<button type="button" class="btn btn-sm" id="im-all">全选</button>') +
+          tr('<button type="button" class="btn btn-sm" id="im-none">全不选</button>') +
           '<div class="spacer"></div>' +
-          '<button type="button" class="btn btn-solid" id="im-import">导入选中的 ' + picked + ' 条</button>' +
+          tr('<button type="button" class="btn btn-solid" id="im-import">导入选中的 ') + picked + tr(' 条</button>') +
         '</div>' +
         '<div style="margin-top:14px">' + im.items.map(function (it, i) {
           return '<div class="result-item">' +
             '<input type="checkbox" class="ri-check" data-idx="' + i + '"' + (state.im.selected[i] ? ' checked' : '') + ' />' +
             '<div class="result-main">' +
               '<div class="result-title">' + esc(it.title) + ' <span class="badge badge-' + esc(it.category) + '">' + esc(CATEGORY[it.category] || it.category) + '</span>' +
-              (it.priority ? ' <span class="badge prio-' + esc(it.priority) + '">' + esc(PRIORITY[it.priority]) + '优先</span>' : '') + '</div>' +
+              (it.priority ? ' <span class="badge prio-' + esc(it.priority) + '">' + esc(PRIORITY[it.priority]) + tr('优先</span>') : '') + '</div>' +
               (it.summary ? '<div class="result-sum">' + esc(it.summary) + '</div>' : '') +
-              (it.key_points && it.key_points.length ? '<div class="result-sum">重点：' + esc(it.key_points.join('；')) + '</div>' : '') +
+              (it.key_points && it.key_points.length ? tr('<div class="result-sum">重点：') + esc(it.key_points.join('；')) + '</div>' : '') +
               (it.content ? '<div class="result-quote">' + esc(it.content) + '</div>' : '') +
             '</div>' +
           '</div>'
@@ -833,15 +854,15 @@
     if (!ensureSession()) return
     syncImportText()
     var text = state.im.text.trim()
-    if (!text) { toast('请先读入内容'); return }
+    if (!text) { toast(tr('请先读入内容')); return }
     state.im.result = null
     state.im.selected = {}
     var btn = $('#im-analyze')
     btn.disabled = true
-    btn.innerHTML = '<span class="spin"></span>分析中'
+    btn.innerHTML = tr('<span class="spin"></span>分析中')
     var slow = setTimeout(function () {
       if (!btn.isConnected) return
-      btn.innerHTML = '<span class="spin"></span>分析中，内容较长时会久一点'
+      btn.innerHTML = tr('<span class="spin"></span>分析中，内容较长时会久一点')
     }, 5000)
 
     try {
@@ -861,29 +882,29 @@
       }
 
       var modeDesc = {
-        auto: '自行判断内容形态（文章、笔记、聊天记录或杂项），按其内在结构拆分',
-        chat: '这是一段聊天 / 对话记录。请按「话题、结论、决策、待办、待确认问题」拆分，每条 content 保留相关的原始发言片段并标明说话人',
-        article: '这是一篇网页文章或长文。请拆成若干条独立知识点 / 观点 / 可行动项，每条 content 保留原文中最相关的段落'
-      }[state.im.mode] || '自行判断'
+        auto: tr('自行判断内容形态（文章、笔记、聊天记录或杂项），按其内在结构拆分'),
+        chat: tr('这是一段聊天 / 对话记录。请按「话题、结论、决策、待办、待确认问题」拆分，每条 content 保留相关的原始发言片段并标明说话人'),
+        article: tr('这是一篇网页文章或长文。请拆成若干条独立知识点 / 观点 / 可行动项，每条 content 保留原文中最相关的段落')
+      }[state.im.mode] || tr('自行判断')
 
-      var prompt = '请读取下面这段外部内容，' + modeDesc + '。\n\n' +
-        '输出 JSON：\n' +
-        '{"analysis":"200 字以内的整体分析：这段内容在讲什么、关键结论、值得注意的点",' +
-        '"items":[{"title":"不超过 20 字","content":"300 字以内，提炼或引用原文","category":"idea|material|todo",' +
-        '"tags":["2-3 个标签"],"summary":"一句话摘要","key_points":["1-3 条重点"],' +
-        '"is_todo":布尔,"due_date":"YYYY-MM-DD 或 null","priority":"high|medium|low|null"}]}\n\n' +
-        '要求：最多 12 条；去掉寒暄、重复与无信息量的内容；不要编造原文没有的信息。\n\n' +
-        '内容如下：\n"""\n' + text.slice(0, 12000) + '\n"""'
+      var prompt = tr('请读取下面这段外部内容，') + modeDesc + '。\n\n' +
+        tr('输出 JSON：\n') +
+        tr('{"analysis":"200 字以内的整体分析：这段内容在讲什么、关键结论、值得注意的点",') +
+        tr('"items":[{"title":"不超过 20 字","content":"300 字以内，提炼或引用原文","category":"idea|material|todo",') +
+        tr('"tags":["2-3 个标签"],"summary":"一句话摘要","key_points":["1-3 条重点"],') +
+        tr('"is_todo":布尔,"due_date":"YYYY-MM-DD 或 null","priority":"high|medium|low|null"}]}\n\n') +
+        tr('要求：最多 12 条；去掉寒暄、重复与无信息量的内容；不要编造原文没有的信息。\n\n') +
+        tr('内容如下：\n"""\n') + text.slice(0, 12000) + '\n"""'
 
       var raw = await callLLM(
-        [sys(SYS_BASE + '你负责把外部读入的长文本拆解为结构化的个人知识条目，只输出 JSON。'), { role: 'user', content: prompt }],
+        [sys(sysBase() + tr('你负责把外部读入的长文本拆解为结构化的个人知识条目，只输出 JSON。')), { role: 'user', content: prompt }],
         { json: true, timeout: 150000 }
       )
       var obj = parseJSON(raw)
       var items = (obj && obj.items) || []
       items = items.slice(0, 12).map(function (x) {
         return {
-          title: String(x.title || '').slice(0, 40) || '未命名条目',
+          title: String(x.title || '').slice(0, 40) || tr('未命名条目'),
           content: String(x.content || '').slice(0, 1200),
           category: CATEGORY[x.category] ? x.category : (x.is_todo ? 'todo' : 'material'),
           tags: Array.isArray(x.tags) ? x.tags.slice(0, 4) : [],
@@ -894,7 +915,7 @@
           priority: ['high', 'medium', 'low'].indexOf(x.priority) >= 0 ? x.priority : null
         }
       })
-      if (!items.length) { toast('没有拆解出可用条目'); return }
+      if (!items.length) { toast(tr('没有拆解出可用条目')); return }
       state.im.result = { analysis: String((obj && obj.analysis) || '').slice(0, 800), items: items }
       items.forEach(function (_, i) { state.im.selected[i] = true })
       finishAnalyze()
@@ -903,7 +924,7 @@
     } finally {
       clearTimeout(slow)
       btn.disabled = false
-      btn.textContent = 'AI 分析并拆解'
+      btn.textContent = tr('AI 分析并拆解')
     }
   }
 
@@ -917,10 +938,10 @@
     if (!ensureSession()) return
     var res = state.im.result
     var picked = res.items.filter(function (_, i) { return state.im.selected[i] })
-    if (!picked.length) { toast('请先勾选要导入的条目'); return }
+    if (!picked.length) { toast(tr('请先勾选要导入的条目')); return }
     var btn = $('#im-import')
     btn.disabled = true
-    btn.innerHTML = '<span class="spin"></span>导入中'
+    btn.innerHTML = tr('<span class="spin"></span>导入中')
     try {
       var rows = picked.map(function (it) {
         return {
@@ -930,17 +951,17 @@
         }
       })
       var created = unwrap(await cloud.database.from('items').insert(rows).select())
-      if (!created || !created.length) throw new Error('导入失败，请确认已登录')
-      toast('已导入 ' + created.length + ' 条')
+      if (!created || !created.length) throw new Error(tr('导入失败，请确认已登录'))
+      toast(tr('已导入 ') + created.length + tr(' 条'))
       state.im.result = null
       state.im.selected = {}
       state.im.text = ''
       await refresh()
       linkBatch(created)
     } catch (e) {
-      toast((e && e.message) || '导入失败')
+      toast((e && e.message) || tr('导入失败'))
     } finally {
-      if (btn) { btn.disabled = false; btn.textContent = '重新导入' }
+      if (btn) { btn.disabled = false; btn.textContent = tr('重新导入') }
     }
   }
 
@@ -957,10 +978,10 @@
       var briefOld = existing.map(function (c) {
         return 'O' + c.id + ' [' + (CATEGORY[c.category] || c.category) + '] ' + c.title + ' — ' + (c.summary || '').slice(0, 40)
       }).join('\n')
-      var prompt = '新导入的条目：\n' + briefNew + '\n\n已有条目：\n' + (briefOld || '（无）') +
-        '\n\n请找出真正相关的配对，最多 8 对。输出 JSON：{"links":[{"source":数字,"target":数字,"reason":"不超过 20 字"}]}\n' +
-        'id 去掉前缀字母后的数字部分。不要关联自己，不要凑数。'
-      var raw = await callLLM([sys(SYS_BASE + '你负责发现个人知识库中内容之间的语义关联，只输出 JSON。'), { role: 'user', content: prompt }], { json: true })
+      var prompt = tr('新导入的条目：\n') + briefNew + tr('\n\n已有条目：\n') + (briefOld || tr('（无）')) +
+        tr('\n\n请找出真正相关的配对，最多 8 对。输出 JSON：{"links":[{"source":数字,"target":数字,"reason":"不超过 20 字"}]}\n') +
+        tr('id 去掉前缀字母后的数字部分。不要关联自己，不要凑数。')
+      var raw = await callLLM([sys(sysBase() + tr('你负责发现个人知识库中内容之间的语义关联，只输出 JSON。')), { role: 'user', content: prompt }], { json: true })
       var obj = parseJSON(raw)
       var pairs = (obj && obj.links) || []
       var used = {}
@@ -1078,19 +1099,19 @@
     if (ta) ta.addEventListener('input', function () {
       state.im.text = ta.value
       var c = $('#im-count')
-      if (c) c.textContent = ta.value.length + ' 字'
+      if (c) c.textContent = ta.value.length + tr(' 字')
     })
 
     var clip = $('#im-clipboard')
     if (clip) clip.addEventListener('click', async function () {
       try {
         var txt = await navigator.clipboard.readText()
-        if (!txt) { toast('剪贴板里没有内容'); return }
+        if (!txt) { toast(tr('剪贴板里没有内容')); return }
         state.im.text = txt
         render()
-        toast('已读入 ' + txt.length + ' 字')
+        toast(tr('已读入 ') + txt.length + tr(' 字'))
       } catch (e) {
-        toast('浏览器拒绝了剪贴板读取，请直接在预览框里按 Ctrl+V 粘贴')
+        toast(tr('浏览器拒绝了剪贴板读取，请直接在预览框里按 Ctrl+V 粘贴'))
       }
     })
 
@@ -1098,16 +1119,16 @@
     if (file) file.addEventListener('change', function () {
       var f = file.files && file.files[0]
       if (!f) return
-      if (f.size > 2 * 1024 * 1024) { toast('文件超过 2MB，请拆分后再试'); return }
+      if (f.size > 2 * 1024 * 1024) { toast(tr('文件超过 2MB，请拆分后再试')); return }
       var fr = new FileReader()
       fr.onload = function () {
         var txt = String(fr.result || '')
         if (/\.(html?|xml)$/i.test(f.name)) txt = htmlToText(txt)
         state.im.text = txt
         render()
-        toast('已读取文件：' + f.name)
+        toast(tr('已读取文件：') + f.name)
       }
-      fr.onerror = function () { toast('文件读取失败') }
+      fr.onerror = function () { toast(tr('文件读取失败')) }
       fr.readAsText(f, 'utf-8')
     })
 
@@ -1116,18 +1137,18 @@
       var url = $('#im-url').value
       state.im.url = url
       fetchBtn.disabled = true
-      fetchBtn.textContent = '抓取中…'
+      fetchBtn.textContent = tr('抓取中…')
       try {
         var txt = await fetchUrlText(url)
-        if (!txt || txt.length < 20) throw new Error('没有读到有效正文')
+        if (!txt || txt.length < 20) throw new Error(tr('没有读到有效正文'))
         state.im.text = txt
         render()
-        toast('已抓取 ' + txt.length + ' 字')
+        toast(tr('已抓取 ') + txt.length + tr(' 字'))
       } catch (e) {
-        if (fetchBtn) { fetchBtn.disabled = false; fetchBtn.textContent = '抓取正文' }
+        if (fetchBtn) { fetchBtn.disabled = false; fetchBtn.textContent = tr('抓取正文') }
         toast(e && e.message === 'CORS_BLOCKED'
-          ? '该网页不允许跨域读取，请复制正文后改用「粘贴」方式'
-          : ((e && e.message) || '抓取失败'))
+          ? tr('该网页不允许跨域读取，请复制正文后改用「粘贴」方式')
+          : ((e && e.message) || tr('抓取失败')))
       }
     })
 
@@ -1146,7 +1167,7 @@
       el.select()
       try { document.execCommand('copy') } catch (e) {}
       el.setAttribute('readonly', 'readonly')
-      toast('小工具代码已复制，去浏览器新建书签粘贴即可')
+      toast(tr('小工具代码已复制，去浏览器新建书签粘贴即可'))
     })
 
     $$('#im-result-anchor .ri-check').forEach(function (cb) {
@@ -1182,10 +1203,10 @@
   function updatePickCount() {
     var picked = Object.keys(state.im.selected).filter(function (k) { return state.im.selected[k] }).length
     var btn = $('#im-import')
-    if (btn) btn.textContent = '导入选中的 ' + picked + ' 条'
+    if (btn) btn.textContent = tr('导入选中的 ') + picked + tr(' 条')
     var label = document.querySelector('#im-result-anchor .section-head .time')
     if (label && state.im.result) {
-      label.textContent = '共拆解出 ' + state.im.result.items.length + ' 条 · 已选 ' + picked + ' 条'
+      label.textContent = tr('共拆解出 ') + state.im.result.items.length + tr(' 条 · 已选 ') + picked + tr(' 条')
     }
   }
 
@@ -1193,10 +1214,10 @@
   async function saveCapture() {
     if (!ensureSession()) return
     var text = $('#capture-input').value.trim()
-    if (!text) { toast('请先输入内容'); return }
+    if (!text) { toast(tr('请先输入内容')); return }
     var btn = $('#capture-save')
     btn.disabled = true
-    btn.innerHTML = '<span class="spin"></span>整理中…'
+    btn.innerHTML = tr('<span class="spin"></span>整理中…')
     try {
       var meta = await classifyText(text, state.captureCat)
       var row = {
@@ -1212,34 +1233,34 @@
         priority: meta.priority || null
       }
       var created = unwrap(await cloud.database.from('items').insert(row).select())
-      if (!created || !created.length) throw new Error('保存失败，请确认已登录')
+      if (!created || !created.length) throw new Error(tr('保存失败，请确认已登录'))
       $('#capture-input').value = ''
-      toast('已保存并整理为「' + CATEGORY[row.category] + '」')
+      toast(tr('已保存并整理为「') + CATEGORY[row.category] + '」')
       await refresh()
       linkNewItem(created[0])
     } catch (e) {
       toast(llmErrorText(e))
     } finally {
       btn.disabled = false
-      btn.textContent = '保存并智能整理'
+      btn.textContent = tr('保存并智能整理')
     }
   }
 
   async function classifyText(text, forced) {
-    var prompt = '请整理下面这段用户输入，并按要求输出 JSON。\n' +
-      '字段说明：\n' +
-      '- title: 不超过 20 字的标题\n' +
-      '- category: 只能是 idea（灵感/想法/随笔）、material（资料/知识/参考信息）、todo（待办/任务/提醒）之一\n' +
-      '- tags: 2-4 个中文标签\n' +
-      '- summary: 一句话摘要，不超过 60 字\n' +
-      '- key_points: 2-4 条重点信息，每句不超过 30 字\n' +
-      '- is_todo: 是否包含需要后续执行的动作（布尔值）\n' +
-      '- due_date: 若原文提到明确日期，输出 YYYY-MM-DD，否则为 null\n' +
+    var prompt = tr('请整理下面这段用户输入，并按要求输出 JSON。\n') +
+      tr('字段说明：\n') +
+      tr('- title: 不超过 20 字的标题\n') +
+      tr('- category: 只能是 idea（灵感/想法/随笔）、material（资料/知识/参考信息）、todo（待办/任务/提醒）之一\n') +
+      tr('- tags: 2-4 个中文标签\n') +
+      tr('- summary: 一句话摘要，不超过 60 字\n') +
+      tr('- key_points: 2-4 条重点信息，每句不超过 30 字\n') +
+      tr('- is_todo: 是否包含需要后续执行的动作（布尔值）\n') +
+      tr('- due_date: 若原文提到明确日期，输出 YYYY-MM-DD，否则为 null\n') +
       '- priority: high / medium / low / null\n' +
-      (forced && forced !== 'auto' ? '注意：用户已手动指定分类为 ' + forced + '，category 必须等于该值。\n' : '') +
-      '\n用户输入：\n"""\n' + text.slice(0, 4000) + '\n"""'
+      (forced && forced !== 'auto' ? tr('注意：用户已手动指定分类为 ') + forced + tr('，category 必须等于该值。\n') : '') +
+      tr('\n用户输入：\n"""\n') + text.slice(0, 4000) + '\n"""'
     try {
-      var raw = await callLLM([sys(SYS_BASE + '你同时是一个精确的结构化信息抽取器，只输出 JSON。'), { role: 'user', content: prompt }], { json: true })
+      var raw = await callLLM([sys(sysBase() + tr('你同时是一个精确的结构化信息抽取器，只输出 JSON。')), { role: 'user', content: prompt }], { json: true })
       var obj = parseJSON(raw)
       if (CATEGORY[obj.category]) obj.category = String(obj.category)
       else obj.category = forced && forced !== 'auto' ? forced : 'idea'
@@ -1266,14 +1287,14 @@
       if (!cands.length) return
       var brief = cands.map(function (c) {
         return 'ID ' + c.id + ' | [' + (CATEGORY[c.category] || c.category) + '] ' + c.title +
-          ' | 标签: ' + ((c.tags || []).join(',') || '无') +
-          ' | 摘要: ' + (c.summary || String(c.content || '').slice(0, 50))
+          tr(' | 标签: ') + ((c.tags || []).join(',') || tr('无')) +
+          tr(' | 摘要: ') + (c.summary || String(c.content || '').slice(0, 50))
       }).join('\n')
-      var prompt = '新记录：\n标题：' + item.title + '\n摘要：' + (item.summary || String(item.content || '').slice(0, 120)) +
-        '\n标签：' + ((item.tags || []).join(',') || '无') +
-        '\n\n已有记录列表：\n' + brief +
-        '\n\n请从已有记录中挑选与新记录真正相关的 0-3 条，输出 JSON：{"related":[{"id":数字,"reason":"不超过 25 字的关联理由"}]}。没有任何相关记录时返回 {"related":[]}。'
-      var raw = await callLLM([sys(SYS_BASE + '你负责发现个人知识库中内容之间的语义关联，只输出 JSON。'), { role: 'user', content: prompt }], { json: true })
+      var prompt = tr('新记录：\n标题：') + item.title + tr('\n摘要：') + (item.summary || String(item.content || '').slice(0, 120)) +
+        tr('\n标签：') + ((item.tags || []).join(',') || tr('无')) +
+        tr('\n\n已有记录列表：\n') + brief +
+        tr('\n\n请从已有记录中挑选与新记录真正相关的 0-3 条，输出 JSON：{"related":[{"id":数字,"reason":"不超过 25 字的关联理由"}]}。没有任何相关记录时返回 {"related":[]}。')
+      var raw = await callLLM([sys(sysBase() + tr('你负责发现个人知识库中内容之间的语义关联，只输出 JSON。')), { role: 'user', content: prompt }], { json: true })
       var obj = parseJSON(raw)
       var rel = (obj && obj.related) || []
       for (var i = 0; i < rel.length && i < 3; i++) {
@@ -1298,31 +1319,31 @@
     if (!it) return
     var rels = relationsOf(id)
     $('#modal-body').innerHTML = '' +
-      '<h3>编辑记录</h3>' +
-      '<label>标题</label><input id="e-title" value="' + esc(it.title) + '" />' +
-      '<label>分类</label>' +
+      tr('<h3>编辑记录</h3>') +
+      tr('<label>标题</label><input id="e-title" value="') + esc(it.title) + '" />' +
+      tr('<label>分类</label>') +
       '<div class="row" id="e-cats">' +
         Object.keys(CATEGORY).map(function (c) {
           return '<button type="button" class="chip' + (it.category === c ? ' active' : '') + '" data-c="' + c + '">' + CATEGORY[c] + '</button>'
         }).join('') +
       '</div>' +
-      '<label>正文</label><textarea id="e-content">' + esc(it.content) + '</textarea>' +
-      '<label>标签（逗号分隔）</label><input id="e-tags" value="' + esc((it.tags || []).join(',')) + '" />' +
-      '<label>摘要</label><input id="e-summary" value="' + esc(it.summary || '') + '" />' +
+      tr('<label>正文</label><textarea id="e-content">') + esc(it.content) + '</textarea>' +
+      tr('<label>标签（逗号分隔）</label><input id="e-tags" value="') + esc((it.tags || []).join(',')) + '" />' +
+      tr('<label>摘要</label><input id="e-summary" value="') + esc(it.summary || '') + '" />' +
       '<div class="row">' +
-        '<div style="flex:1"><label>截止日期</label><input id="e-due" type="date" value="' + esc(it.due_date || '') + '" /></div>' +
-        '<div style="flex:1"><label>优先级</label><input id="e-prio" placeholder="high / medium / low" value="' + esc(it.priority || '') + '" /></div>' +
+        tr('<div style="flex:1"><label>截止日期</label><input id="e-due" type="date" value="') + esc(it.due_date || '') + '" /></div>' +
+        tr('<div style="flex:1"><label>优先级</label><input id="e-prio" placeholder="high / medium / low" value="') + esc(it.priority || '') + '" /></div>' +
       '</div>' +
-      ((it.key_points && it.key_points.length) ? '<label>重点信息</label><div>' +
+      ((it.key_points && it.key_points.length) ? tr('<label>重点信息</label><div>') +
         it.key_points.map(function (p) { return '<div class="rel-item">' + esc(p) + '</div>' }).join('') + '</div>' : '') +
-      (rels.length ? '<label>相关内容</label><div>' + rels.map(function (r) {
-        return '<div class="rel-item"><b>' + esc(r.item.title) + '</b><div class="rel-reason">' + esc(r.reason || '语义相近') + '</div></div>'
+      (rels.length ? tr('<label>相关内容</label><div>') + rels.map(function (r) {
+        return '<div class="rel-item"><b>' + esc(r.item.title) + '</b><div class="rel-reason">' + esc(r.reason || tr('语义相近')) + '</div></div>'
       }).join('') + '</div>' : '') +
       '<div class="modal-foot">' +
-        '<button type="button" class="btn btn-danger" id="e-del">删除</button>' +
+        tr('<button type="button" class="btn btn-danger" id="e-del">删除</button>') +
         '<div class="spacer"></div>' +
-        '<button type="button" class="btn" id="e-cancel">取消</button>' +
-        '<button type="button" class="btn btn-solid" id="e-save">保存</button>' +
+        tr('<button type="button" class="btn" id="e-cancel">取消</button>') +
+        tr('<button type="button" class="btn btn-solid" id="e-save">保存</button>') +
       '</div>'
     $('#modal').classList.remove('hidden')
 
@@ -1337,7 +1358,7 @@
     $('#e-del').addEventListener('click', function () { closeModal(); removeItem(id) })
     $('#e-save').addEventListener('click', async function () {
       var patch = {
-        title: $('#e-title').value.trim() || '（无标题）',
+        title: $('#e-title').value.trim() || tr('（无标题）'),
         content: $('#e-content').value,
         category: picked,
         tags: $('#e-tags').value.split(/[,，]/).map(function (s) { return s.trim() }).filter(Boolean),
@@ -1347,24 +1368,24 @@
         updated_at: new Date().toISOString()
       }
       var res = await cloud.database.from('items').update(patch).eq('id', id).select()
-      if (res.error) { toast(res.error.message || '保存失败'); return }
-      if (!res.data || !res.data.length) { toast('没有改动任何内容，该记录可能已不存在'); return }
+      if (res.error) { toast(res.error.message || tr('保存失败')); return }
+      if (!res.data || !res.data.length) { toast(tr('没有改动任何内容，该记录可能已不存在')); return }
       closeModal()
       await refresh()
-      toast('已保存')
+      toast(tr('已保存'))
     })
   }
 
   function closeModal() { $('#modal').classList.add('hidden') }
 
   async function removeItem(id) {
-    if (!confirm('确定删除这条记录吗？删除后无法恢复。')) return
+    if (!confirm(tr('确定删除这条记录吗？删除后无法恢复。'))) return
     var res = await cloud.database.from('items').delete().eq('id', id).select()
-    if (res.error) { toast(res.error.message || '删除失败'); return }
-    if (!res.data || !res.data.length) { toast('没有可删除的记录'); return }
+    if (res.error) { toast(res.error.message || tr('删除失败')); return }
+    if (!res.data || !res.data.length) { toast(tr('没有可删除的记录')); return }
     await cloud.database.from('item_links').delete().or('source_id.eq.' + id + ',target_id.eq.' + id)
     await refresh()
-    toast('已删除')
+    toast(tr('已删除'))
   }
 
   async function toggleDone(id) {
@@ -1373,26 +1394,26 @@
     var res = await cloud.database.from('items')
       .update({ todo_done: !it.todo_done, updated_at: new Date().toISOString() })
       .eq('id', id).select()
-    if (res.error) { toast(res.error.message || '更新失败'); return }
-    if (!res.data || !res.data.length) { toast('没有改动任何内容'); return }
+    if (res.error) { toast(res.error.message || tr('更新失败')); return }
+    if (!res.data || !res.data.length) { toast(tr('没有改动任何内容')); return }
     await refresh()
   }
 
   async function extractPoints(id) {
     var it = itemById(id)
     if (!it) return
-    toast('正在提取重点…')
+    toast(tr('正在提取重点…'))
     try {
-      var prompt = '从下面这条记录中提取 3-5 条重点信息，每条不超过 30 字，输出 JSON：{"points":["..."]}\n\n记录：\n标题：' +
-        it.title + '\n正文：' + String(it.content || '').slice(0, 4000)
-      var raw = await callLLM([sys(SYS_BASE + '你负责从个人笔记中提炼关键要点，只输出 JSON。'), { role: 'user', content: prompt }], { json: true })
+      var prompt = tr('从下面这条记录中提取 3-5 条重点信息，每条不超过 30 字，输出 JSON：{"points":["..."]}\n\n记录：\n标题：') +
+        it.title + tr('\n正文：') + String(it.content || '').slice(0, 4000)
+      var raw = await callLLM([sys(sysBase() + tr('你负责从个人笔记中提炼关键要点，只输出 JSON。')), { role: 'user', content: prompt }], { json: true })
       var obj = parseJSON(raw)
       var points = (obj && obj.points) || []
-      if (!points.length) { toast('没有提取到重点'); return }
+      if (!points.length) { toast(tr('没有提取到重点')); return }
       var res = await cloud.database.from('items').update({ key_points: points.slice(0, 5) }).eq('id', id).select()
       if (res.error) { toast(res.error.message); return }
       await refresh()
-      toast('已提取 ' + points.length + ' 条重点')
+      toast(tr('已提取 ') + points.length + tr(' 条重点'))
     } catch (e) {
       toast(llmErrorText(e))
     }
@@ -1418,32 +1439,32 @@
     if (!ensureSession()) return
     if (state.asking) return
     var q = $('#ask-input').value.trim()
-    if (!q) { toast('请输入问题'); return }
-    if (!state.items.length) { toast('资料库还是空的，先记录一些内容吧'); return }
+    if (!q) { toast(tr('请输入问题')); return }
+    if (!state.items.length) { toast(tr('资料库还是空的，先记录一些内容吧')); return }
     var box = $('#answer-box')
     box.textContent = ''
     box.dataset.placeholder = ''
     state.asking = true
     var btn = $('#ask-btn')
     btn.disabled = true
-    btn.innerHTML = '<span class="spin"></span>生成中'
+    btn.innerHTML = tr('<span class="spin"></span>生成中')
 
     try {
       var ctx = pickContext(q, 12)
       var brief = ctx.map(function (c) {
         return 'ID ' + c.id + ' | [' + (CATEGORY[c.category] || c.category) + '] ' + c.title +
-          '\n摘要：' + (c.summary || '') +
-          '\n正文：' + String(c.content || '').slice(0, 600) +
-          '\n要点：' + ((c.key_points || []).join('；') || '无')
+          tr('\n摘要：') + (c.summary || '') +
+          tr('\n正文：') + String(c.content || '').slice(0, 600) +
+          tr('\n要点：') + ((c.key_points || []).join('；') || tr('无'))
       }).join('\n---\n')
-      var prompt = '以下是用户资料库中最相关的内容片段：\n\n' + (brief || '（没有检索到相关内容）') +
-        '\n\n请基于以上内容回答用户的问题。要求：\n' +
-        '1. 只依据资料作答，资料中没有的信息不要编造，可以直接说明"资料中没有提到"。\n' +
-        '2. 引用到某条内容时，在其后标注 [ID:数字]。\n' +
-        '3. 回答控制在 300 字以内，条理清晰。\n\n用户问题：' + q
+      var prompt = tr('以下是用户资料库中最相关的内容片段：\n\n') + (brief || tr('（没有检索到相关内容）')) +
+        tr('\n\n请基于以上内容回答用户的问题。要求：\n') +
+        tr('1. 只依据资料作答，资料中没有的信息不要编造，可以直接说明"资料中没有提到"。\n') +
+        tr('2. 引用到某条内容时，在其后标注 [ID:数字]。\n') +
+        tr('3. 回答控制在 300 字以内，条理清晰。\n\n用户问题：') + q
 
       var answer = await callLLM(
-        [sys(SYS_BASE + '你基于用户私人资料库回答提问，必须标注引用来源。'), { role: 'user', content: prompt }],
+        [sys(sysBase() + tr('你基于用户私人资料库回答提问，必须标注引用来源。')), { role: 'user', content: prompt }],
         { onDelta: function (d) { box.textContent += d; box.scrollTop = box.scrollHeight } }
       )
       var refs = []
@@ -1454,7 +1475,7 @@
         if (refs.indexOf(id) < 0) refs.push(id)
       }
       $('#refs-box').innerHTML = refs.length
-        ? '<span class="time">引用来源：</span>' + refs.map(function (id) {
+        ? tr('<span class="time">引用来源：</span>') + refs.map(function (id) {
             var it = itemById(id)
             return it ? '<button type="button" class="chip" data-open="' + id + '">' + esc(it.title) + '</button>' : ''
           }).join('')
@@ -1473,7 +1494,7 @@
     } finally {
       state.asking = false
       var b2 = $('#ask-btn')
-      if (b2) { b2.disabled = false; b2.textContent = '提问' }
+      if (b2) { b2.disabled = false; b2.textContent = tr('提问') }
     }
   }
 
@@ -1481,30 +1502,30 @@
   async function planTodos() {
     if (!ensureSession()) return
     var todos = state.items.filter(function (it) { return it.is_todo && !it.todo_done })
-    if (!todos.length) { toast('没有未完成的待办'); return }
+    if (!todos.length) { toast(tr('没有未完成的待办')); return }
     var box = $('#plan-box')
     box.classList.remove('hidden')
     box.textContent = ''
     var btn = $('#ai-plan')
     btn.disabled = true
-    btn.innerHTML = '<span class="spin"></span>整理中'
+    btn.innerHTML = tr('<span class="spin"></span>整理中')
     try {
       var brief = todos.map(function (t, i) {
         return (i + 1) + '. ' + t.title +
-          (t.priority ? '（优先级：' + PRIORITY[t.priority] + '）' : '') +
-          (t.due_date ? '（截止：' + fmtDay(t.due_date) + '）' : '') +
+          (t.priority ? tr('（优先级：') + PRIORITY[t.priority] + '）' : '') +
+          (t.due_date ? tr('（截止：') + fmtDay(t.due_date) + '）' : '') +
           (t.summary ? ' — ' + t.summary : '')
       }).join('\n')
-      var prompt = '这些是用户当前未完成的待办：\n' + brief +
-        '\n\n请把它们整理成一份可执行的推进计划：按紧急与重要程度排序，指出哪些可以合并或拆解，并给出接下来最值得先做的 3 件事。控制在 350 字以内。'
-      await callLLM([sys(SYS_BASE + '你是一位高效的个人事务助理。'), { role: 'user', content: prompt }], {
+      var prompt = tr('这些是用户当前未完成的待办：\n') + brief +
+        tr('\n\n请把它们整理成一份可执行的推进计划：按紧急与重要程度排序，指出哪些可以合并或拆解，并给出接下来最值得先做的 3 件事。控制在 350 字以内。')
+      await callLLM([sys(sysBase() + tr('你是一位高效的个人事务助理。')), { role: 'user', content: prompt }], {
         onDelta: function (d) { box.textContent += d }
       })
     } catch (e) {
       box.textContent = llmErrorText(e)
     } finally {
       btn.disabled = false
-      btn.textContent = 'AI 整理待办'
+      btn.textContent = tr('AI 整理待办')
     }
   }
 
@@ -1514,27 +1535,27 @@
     var days = state.reportDays
     var since = new Date(Date.now() - days * 86400000).toISOString()
     var inRange = state.items.filter(function (it) { return new Date(it.created_at) >= new Date(since) })
-    if (!inRange.length) { toast('最近 ' + days + ' 天没有记录，换个时间段试试'); return }
+    if (!inRange.length) { toast(tr('最近 ') + days + tr(' 天没有记录，换个时间段试试')); return }
     var box = $('#report-box')
     box.classList.remove('hidden')
-    box.textContent = '正在汇总最近 ' + days + ' 天的 ' + inRange.length + ' 条记录…'
+    box.textContent = tr('正在汇总最近 ') + days + tr(' 天的 ') + inRange.length + tr(' 条记录…')
     var btn = $('#gen-report')
     btn.disabled = true
-    btn.innerHTML = '<span class="spin"></span>生成中'
+    btn.innerHTML = tr('<span class="spin"></span>生成中')
     try {
       var brief = inRange.slice(0, 80).map(function (c) {
         return '[' + (CATEGORY[c.category] || c.category) + '] ' + c.title + ' | ' + (c.summary || String(c.content || '').slice(0, 80)) +
-          ' | 标签: ' + ((c.tags || []).join(',') || '无') + ' | ' + fmtDay(c.created_at)
+          tr(' | 标签: ') + ((c.tags || []).join(',') || tr('无')) + ' | ' + fmtDay(c.created_at)
       }).join('\n')
-      var prompt = '以下是用户在最近 ' + days + ' 天记录的 ' + inRange.length + ' 条内容：\n\n' + brief +
-        '\n\n请生成阶段总结，输出 JSON：\n' +
-        '{"summary":"200-300 字的阶段总结，说明这段时间关注了什么、推进到什么程度",' +
-        '"highlights":["3-5 条重点进展，每条不超过 40 字"],' +
-        '"actions":["3-5 条后续行动建议，具体可执行，每条不超过 40 字"]}'
-      var raw = await callLLM([sys(SYS_BASE + '你负责为用户生成阶段复盘与行动建议，只输出 JSON。'), { role: 'user', content: prompt }], { json: true })
+      var prompt = tr('以下是用户在最近 ') + days + tr(' 天记录的 ') + inRange.length + tr(' 条内容：\n\n') + brief +
+        tr('\n\n请生成阶段总结，输出 JSON：\n') +
+        tr('{"summary":"200-300 字的阶段总结，说明这段时间关注了什么、推进到什么程度",') +
+        tr('"highlights":["3-5 条重点进展，每条不超过 40 字"],') +
+        tr('"actions":["3-5 条后续行动建议，具体可执行，每条不超过 40 字"]}')
+      var raw = await callLLM([sys(sysBase() + tr('你负责为用户生成阶段复盘与行动建议，只输出 JSON。')), { role: 'user', content: prompt }], { json: true })
       var obj = parseJSON(raw)
       var row = {
-        period_label: '最近 ' + days + ' 天',
+        period_label: tr('最近 ') + days + tr(' 天'),
         range_days: days,
         summary: obj.summary || '',
         highlights: (obj.highlights || []).slice(0, 6),
@@ -1549,12 +1570,12 @@
         rb.classList.remove('hidden')
         rb.innerHTML = renderReport(row)
       }
-      toast('总结已生成并保存')
+      toast(tr('总结已生成并保存'))
     } catch (e) {
       box.textContent = llmErrorText(e)
     } finally {
       btn.disabled = false
-      btn.textContent = '生成总结'
+      btn.textContent = tr('生成总结')
     }
   }
 
@@ -1565,12 +1586,12 @@
     try {
       await loadModels()
     } catch (e) {
-      toast('模型列表加载失败：' + llmErrorText(e))
+      toast(tr('模型列表加载失败：') + llmErrorText(e))
     }
     try {
       await Promise.all([loadItems(), loadLinks(), loadChats(), loadReports()])
     } catch (e) {
-      toast('数据加载失败：' + ((e && e.message) || '请稍后重试'))
+      toast(tr('数据加载失败：') + ((e && e.message) || tr('请稍后重试')))
     }
     render()
   }
@@ -1591,6 +1612,15 @@
     var v = new URL(location.href).searchParams.get('view')
     if (v && ['capture', 'import', 'library', 'todos', 'ask', 'reports'].indexOf(v) >= 0) state.view = v
     await restoreAuth()
+  }
+
+  // 语言切换时重算常量标签并重绘当前视图（页面骨架由 i18n.js 自己处理）
+  if (window.I18N && window.I18N.setRefresh) {
+    window.I18N.setRefresh(function () {
+      refreshLabels()
+      try { render() } catch (e) {}
+      try { renderUser() } catch (e) {}
+    })
   }
 
   boot()

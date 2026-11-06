@@ -18,6 +18,8 @@ jobs:
         run: |
           node --check app.js
           node --check config.example.js
+          node --check i18n.js
+          node --check i18n-dict.js
 
       - name: 本机配置未被提交
         run: |
@@ -46,7 +48,8 @@ jobs:
           # 只检查登录视图里静态存在的元素；其余 id 由视图渲染时动态生成
           required = ["auth-view", "app-view", "phone-input", "email-input",
                       "code-input", "send-code-btn", "login-btn",
-                      "wechat-btn", "workbuddy-btn", "auth-error", "toast"]
+                      "wechat-btn", "workbuddy-btn", "auth-error", "toast",
+                      "lang-toggle", "lang-toggle-app"]
           missing = [i for i in required if i not in ids]
           if missing:
               sys.exit("登录页缺少元素: " + ", ".join(missing))

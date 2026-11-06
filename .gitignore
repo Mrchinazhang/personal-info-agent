@@ -42,3 +42,9 @@ npm-debug.log*
 yarn-error.log*
 *.tmp
 *.bak
+
+# ---- i18n 提取脚本的中间产物（可再生，不入库）----
+_i18n_*.json
+_i18n_*.txt
+_remaining.txt
+_zh_segments.txt
